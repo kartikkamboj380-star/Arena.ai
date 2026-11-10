@@ -137,13 +137,17 @@ def main(argv: list[str]) -> int:
             record(f"    {line[:240]}")
 
     if report:
-        body = (
-            "### CI diagnostics\n\n"
-            f"Gradle exited {code}. "
-            + ("Compiler/test diagnostics follow.\n\n" + "\n".join(f"- " + f for f in findings)
-               if findings else "No parseable diagnostic lines were found; see the raw log.\n")
-            + "\n"
-        )
+        parts = ["### CI diagnostics", "", f"Gradle exited {code}. Findings parsed from its output:"]
+        parts.append("")
+        parts.extend(f"- {finding}" for finding in findings) if findings else parts.append("- none parsed")
+        if code != 0:
+            # Always include the tail. Pattern matching is a convenience, not a guarantee, and a
+            # report that says "nothing matched" is not actionable.
+            tail = [line.rstrip() for line in lines if line.strip()][-90:]
+            parts += ["", "<details><summary>last lines of the Gradle output</summary>", "", "```"]
+            parts += [line[:300] for line in tail]
+            parts += ["```", "", "</details>"]
+        body = "\n".join(parts) + "\n"
         # GitHub caps a comment body at 65536 characters.
         with open(report, "w", encoding="utf-8") as handle:
             handle.write(body[:60000])

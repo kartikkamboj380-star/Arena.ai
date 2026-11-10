@@ -93,28 +93,31 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run JVM unit tests
+        # `set +e` first: Actions runs `bash -e`, which would abort the step on Gradle's non-zero
+        # exit and skip the diagnostics below, leaving a red run with nothing to read.
         run: |
-          set -uo pipefail
+          set +e
+          set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee /tmp/unit.log
           code=${PIPESTATUS[0]}
           # Re-emit the diagnostics as check annotations: the artifact log itself is served from a
           # host a restricted environment may not reach, and a red build nobody can read is unfixable.
           python3 tools/ci_explain.py /tmp/unit.log "$code" --test-results app/build/test-results/testDebugUnitTest --report /tmp/report-unit.md
-          exit $?
+          exit $code
 
       - name: Assemble debug APK, instrumentation APK and lint
         run: |
-          set -uo pipefail
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest \
-            :app:lintDebug --continue 2>&1 | tee /tmp/assemble.log
+          set +e
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --continue 2>&1 | tee /tmp/assemble.log
           code=${PIPESTATUS[0]}
           python3 tools/ci_explain.py /tmp/assemble.log "$code" --report /tmp/report-assemble.md
-          exit $?
+          exit $code
 
       - name: Report the failure on the pull request
         if: failure()
         run: |
-          set -uo pipefail
+          set +e
           cat /tmp/report-unit.md /tmp/report-assemble.md > /tmp/report.md 2>/dev/null || true
           if [ ! -s /tmp/report.md ]; then
             printf '### CI diagnostics\n\nThe build failed and produced no parseable diagnostics. Check the raw log for the failing step.\n' > /tmp/report.md
