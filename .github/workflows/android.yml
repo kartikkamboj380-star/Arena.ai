@@ -13,6 +13,9 @@ on:
 
 permissions:
   contents: read
+  # So a failed run can post its own diagnostics as a comment: the raw log lives on a host that
+  # restricted environments may not reach. Nothing sensitive is written here — compiler errors only.
+  pull-requests: write
 
 concurrency:
   group: android-ci-${{ github.ref }}
@@ -96,8 +99,7 @@ jobs:
           code=${PIPESTATUS[0]}
           # Re-emit the diagnostics as check annotations: the artifact log itself is served from a
           # host a restricted environment may not reach, and a red build nobody can read is unfixable.
-          python3 tools/ci_explain.py /tmp/unit.log "$code" \
-            --test-results app/build/test-results/testDebugUnitTest
+          python3 tools/ci_explain.py /tmp/unit.log "$code" --test-results app/build/test-results/testDebugUnitTest --report /tmp/report-unit.md
           exit $?
 
       - name: Assemble debug APK, instrumentation APK and lint
@@ -106,8 +108,23 @@ jobs:
           ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest \
             :app:lintDebug --continue 2>&1 | tee /tmp/assemble.log
           code=${PIPESTATUS[0]}
-          python3 tools/ci_explain.py /tmp/assemble.log "$code"
+          python3 tools/ci_explain.py /tmp/assemble.log "$code" --report /tmp/report-assemble.md
           exit $?
+
+      - name: Report the failure on the pull request
+        if: failure()
+        run: |
+          set -uo pipefail
+          cat /tmp/report-unit.md /tmp/report-assemble.md > /tmp/report.md 2>/dev/null || true
+          if [ ! -s /tmp/report.md ]; then
+            printf '### CI diagnostics\n\nThe build failed and produced no parseable diagnostics. Check the raw log for the failing step.\n' > /tmp/report.md
+          fi
+          if [ -n "${GH_PR_URL:-}" ]; then
+            gh pr comment "$GH_PR_URL" --body-file /tmp/report.md || echo "comment could not be posted"
+          fi
+        env:
+          GH_PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ github.token }}
 
       - name: Show what was built
         run: |

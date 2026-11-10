@@ -7,7 +7,12 @@ prints the interesting lines *and* re-emits them as `::error`/`::warning` annota
 the checks API. It never invents success: it exits with the exit code of the Gradle invocation it was
 given, so a failure stays a failure.
 
-Usage:  ci_explain.py <gradle-log-file> <gradle-exit-code> [--test-results <dir>]
+Usage:  ci_explain.py <gradle-log-file> <gradle-exit-code> [--test-results <dir>] [--report <file>]
+
+`--report` additionally writes the collected diagnostics as markdown, which the workflow posts as a
+pull-request comment on failure. That channel exists because the raw job log is served from a host a
+restricted environment may not be able to read, and "the build is red" without the error text is not a
+reportable state.
 """
 
 from __future__ import annotations
@@ -35,17 +40,25 @@ def emit(level: str, title: str, path: str, line: str, message: str) -> None:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
-        print("usage: ci_explain.py <log-file> <exit-code> [--test-results <dir>]", file=sys.stderr)
+        print("usage: ci_explain.py <log-file> <exit-code> [--test-results <dir>] [--report <file>]", file=sys.stderr)
         return 2
     log_path, code = argv[1], int(argv[2])
-    test_dir = None
+    test_dir = report = None
     if "--test-results" in argv:
         test_dir = argv[argv.index("--test-results") + 1]
+    if "--report" in argv:
+        report = argv[argv.index("--report") + 1]
 
     lines: list[str] = []
     if os.path.exists(log_path):
         with open(log_path, encoding="utf-8", errors="replace") as handle:
             lines = handle.read().splitlines()
+
+    findings: list[str] = []
+
+    def record(text: str) -> None:
+        if len(findings) < 60:
+            findings.append(text)
 
     # 1. Kotlin / Java compiler diagnostics, deduplicated, order preserved.
     seen: set[str] = set()
@@ -58,6 +71,8 @@ def main(argv: list[str]) -> int:
                 continue
             seen.add(key)
             emit("error" if match["level"] == "e" else "warning", "Compile", match["path"], match["line"], match["msg"])
+            if match["level"] == "e":
+                record(f"`{match['path'].rsplit('/', 1)[-1]}:{match['line']}:{match['col']}` — {match['msg']}")
             reported += 1
             continue
         if TEST_FAILED.match(raw):
@@ -77,7 +92,9 @@ def main(argv: list[str]) -> int:
                 if not stripped:
                     break
                 block.append(stripped)
-            emit("error", "Gradle", "", "", " | ".join(block)[:500])
+            text = " | ".join(block)[:500]
+            emit("error", "Gradle", "", "", text)
+            record(text)
             reported += 1
             break
 
@@ -99,13 +116,9 @@ def main(argv: list[str]) -> int:
                     if node is not None:
                         text = (node.get("message") or node.text or "").strip().splitlines()
                         detail = text[0] if text else "no message"
-                        emit(
-                            "error",
-                            "Failed test",
-                            "",
-                            "",
-                            f"{case.get('classname')}.{case.get('name')}: {detail}"[:500],
-                        )
+                        text = f"{case.get('classname')}.{case.get('name')}: {detail}"[:500]
+                        emit("error", "Failed test", "", "", text)
+                        record(text)
                         reported += 1
         print(f"JVM unit tests: {tests} run, {failures} failed, {errors} errors, {skipped} skipped")
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -118,8 +131,22 @@ def main(argv: list[str]) -> int:
 
     if reported == 0 and code != 0:
         # Never leave a red build with no explanation. Show the tail so the cause is at hand.
-        tail = [line for line in lines[-60:] if line.strip()]
+        tail = [line.strip() for line in lines[-80:] if line.strip()]
         emit("error", "Failed without a parseable diagnostic", "", "", ("tail: " + " ⏎ ".join(tail[-12:]))[:800])
+        for line in tail[-25:]:
+            record(f"    {line[:240]}")
+
+    if report:
+        body = (
+            "### CI diagnostics\n\n"
+            f"Gradle exited {code}. "
+            + ("Compiler/test diagnostics follow.\n\n" + "\n".join(f"- " + f for f in findings)
+               if findings else "No parseable diagnostic lines were found; see the raw log.\n")
+            + "\n"
+        )
+        # GitHub caps a comment body at 65536 characters.
+        with open(report, "w", encoding="utf-8") as handle:
+            handle.write(body[:60000])
 
     if code != 0:
         print(f"Gradle exited {code}; propagating failure.", file=sys.stderr)
