@@ -1,7 +1,7 @@
 package com.kartikkamboj.arena.di
 
 import android.app.Application
-import android.webkit.WebView
+import android.webkit.CookieManager
 import com.kartikkamboj.arena.core.AppLog
 import com.kartikkamboj.arena.core.Clock
 import com.kartikkamboj.arena.core.NetworkMonitor
@@ -104,7 +104,7 @@ class AppContainer(private val application: Application) {
 
     val diagnostics: Diagnostics by lazy {
         Diagnostics(
-            application = application,
+            context = application,
             accounts = accounts,
             models = models,
             history = history,
@@ -130,8 +130,11 @@ class AppContainer(private val application: Application) {
     }
 
     fun onLowMemory(level: Int) {
-        // Free WebView caches before the kernel does it for us; the session itself survives.
-        runCatching { WebView.trimMemory(level) }
+        // android.webkit.WebView exposes no public cache-trimming API — the framework forwards
+        // onTrimMemory to the renderer itself. What this app *can* guarantee before it becomes a
+        // reclaim candidate is that the session material it owns is durably on disk.
+        AppLog.d("low memory (level $level): flushing the cookie store")
+        runCatching { CookieManager.getInstance().flush() }
     }
 
     /** Removes everything this app stored locally. Never touches Arena's own data. */

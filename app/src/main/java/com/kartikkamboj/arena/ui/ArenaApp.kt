@@ -93,6 +93,8 @@ fun ArenaApp(
             onLinkConsumed()
         }
 
+        val localContext = LocalContext.current
+
         // Back inside Chat walks the page's own history first, and only leaves the app when the
         // session has nowhere left to go.
         BackHandler(enabled = currentRoute == ArenaDestination.CHAT.route && session.canGoBack) {
@@ -114,7 +116,7 @@ fun ArenaApp(
                                 com.kartikkamboj.arena.web.UiNotice.Kind.ERROR -> NoticeTone.ERROR
                             },
                             actionLabel = current.actionLabel,
-                            onAction = { handleNoticeAction(current.action, navController, container) },
+                            onAction = { handleNoticeAction(current.action, navController, container, localContext) },
                             onDismiss = { container.session.consumeNotice() },
                         )
                     }
@@ -164,11 +166,15 @@ fun ArenaApp(
     }
 }
 
-@Composable
+/**
+ * Runs the action a notice banner offered. Deliberately *not* composable: it is called from a click
+ * lambda, where composable calls are illegal, so the caller hands over the context it already has.
+ */
 private fun handleNoticeAction(
     action: UiAction?,
     navigator: NavHostController,
     container: AppContainer,
+    context: android.content.Context,
 ) {
     when (action) {
         UiAction.RECONNECT -> {
@@ -185,7 +191,7 @@ private fun handleNoticeAction(
         UiAction.RETRY -> container.session.reload()
         UiAction.BROWSER -> {
             val url = container.session.state.value.url
-            val activity = LocalContext.current as? ComponentActivity
+            val activity = context as? ComponentActivity ?: context.findActivity()
             if (url.isNotBlank() && activity != null) {
                 runCatching {
                     activity.startActivity(
@@ -198,6 +204,16 @@ private fun handleNoticeAction(
         null -> Unit
     }
     container.session.consumeNotice()
+}
+
+/** Unwraps a compose/ContextThemeWrapper context chain to the activity that owns it. */
+private fun android.content.Context.findActivity(): ComponentActivity? {
+    var current: android.content.Context = this
+    while (current is android.content.ContextWrapper) {
+        (current as? ComponentActivity)?.let { return it }
+        current = current.baseContext
+    }
+    return null
 }
 
 @Composable

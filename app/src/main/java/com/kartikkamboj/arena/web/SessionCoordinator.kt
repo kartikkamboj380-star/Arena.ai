@@ -234,7 +234,7 @@ class SessionCoordinator(
                     when (val outcome = isolation.restore(slot)) {
                         is RestoreOutcome.Expired -> notifyExpired(slot, outcome)
                         is RestoreOutcome.Failed -> _state.update {
-                            it.copy(error = AppError(ErrorKind.CONNECTION_ERROR, outcome.reason))
+                            it.copy(error = AppError(ErrorKind.PARSE, "stored session could not be read"))
                         }
 
                         else -> Unit
@@ -361,12 +361,16 @@ class SessionCoordinator(
     }
 
     fun handOffLoginToBrowser() {
-        onOpenExternal?.invoke(ArenaUrls.CHAT)
-            ?: _notice.value = UiNotice(
+        val opener = onOpenExternal
+        if (opener == null) {
+            _notice.value = UiNotice(
                 "No browser is available on this device, so sign-in cannot be handed off. Use the " +
                     "in-app sign-in instead.",
                 UiNotice.Kind.WARN,
             )
+            return
+        }
+        opener(ArenaUrls.CHAT)
         _notice.value = UiNotice(
             "Arena opened in your browser. A browser session stays in the browser: this app cannot " +
                 "read its cookies, by design. To give this slot its own session, sign in inside the " +
@@ -390,7 +394,7 @@ class SessionCoordinator(
                 mode = modeFor(url),
                 url = url,
                 model = models.activeSelection(),
-                titleHint = view.title.takeIf { it.isNotBlank() },
+                titleHint = view.title?.takeIf { it.isNotBlank() },
             )
             _notice.value = UiNotice(
                 "Tracked this page in Account $slot's local history. Arena still owns the transcript.",
@@ -429,7 +433,7 @@ class SessionCoordinator(
                     "Slot ${outcome.slot} does not exist.", UiNotice.Kind.ERROR,
                 )
 
-                AccountRepository.SelectOutcome.AlreadySelected -> openFor(slot, force = false)
+                is AccountRepository.SelectOutcome.AlreadySelected -> openFor(slot, force = false)
                 is AccountRepository.SelectOutcome.Success -> {
                     val restore = outcome.restore
                     val verb = when (restore) {

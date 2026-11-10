@@ -88,7 +88,9 @@ class ArenaWebViewClient(
         request: WebResourceRequest?,
         errorResponse: WebResourceResponse?,
     ) {
-        val status = parseStatus(errorResponse?.statusCodeAndReasonPhrase)
+        // WebResourceResponse exposes getStatusCode(); the combined status-and-reason string that
+        // HttpURLConnection uses is not part of this API, so there is nothing to parse here.
+        val status = errorResponse?.statusCode ?: 0
         if (status <= 0) return
         if (request?.isForMainFrame == true) {
             listener.onMainFrameHttpError(status, request.url?.toString().orEmpty())
@@ -109,7 +111,7 @@ class ArenaWebViewClient(
         )
     }
 
-    override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.SSLCertificateError?) {
+    override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.webkit.SslError?) {
         // Never proceed. A cancelled handler leaves the page unloaded and the user sees why.
         AppLog.w("slot $slot refused a broken TLS certificate: ${error?.primaryError}")
         listener.onSslError(ParsedUrl.of(error?.url)?.host)

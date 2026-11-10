@@ -218,14 +218,10 @@ fun ChatScreen(container: AppContainer, navigator: NavHostController) {
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                AnimatedVisibility(
-                    visible = session.loading,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
-                ) {
+                if (session.loading) {
+                    // A plain conditional instead of AnimatedVisibility: this overlay sits in a Box
+                    // scope, where the ColumnScope overload is not callable, and a fade adds nothing
+                    // a spinner does not already communicate.
                     Box(
                         modifier = Modifier
                             .size(34.dp)

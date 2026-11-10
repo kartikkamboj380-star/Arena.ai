@@ -193,15 +193,15 @@ class AccountRepository(
             )
         }
         val transition = dispatch(slot, event)
+        // Read the stored count *here*: the update lambda below is not a suspend block, and the
+        // count must reflect the jar as it was when the probe ran.
+        val storedCount = runCatching { isolation.storedCount(slot) }.getOrDefault(0)
         updateSlot(slot) { account ->
             account.copy(
                 lastProbeAtMillis = result.observedAtMillis,
                 lastProbeOk = result.verdict == ProbeVerdict.AUTHENTICATED,
                 observedLabel = result.accountLabel ?: account.observedLabel,
-                cookieCount = run {
-                    val stored = isolation.storedCount(slot)
-                    if (stored > 0) stored else account.cookieCount
-                },
+                cookieCount = if (storedCount > 0) storedCount else account.cookieCount,
                 snapshotCreatedAtMillis = if (result.verdict == ProbeVerdict.AUTHENTICATED) {
                     result.observedAtMillis
                 } else {

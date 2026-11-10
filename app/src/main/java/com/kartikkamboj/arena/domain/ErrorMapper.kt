@@ -1,11 +1,11 @@
 package com.kartikkamboj.arena.domain
 
+import com.kartikkamboj.arena.data.model.ErrorKind
 import java.net.HttpURLConnection.HTTP_CLIENT_TIMEOUT
 import java.net.HttpURLConnection.HTTP_FORBIDDEN
 import java.net.HttpURLConnection.HTTP_GATEWAY_TIMEOUT
 import java.net.HttpURLConnection.HTTP_INTERNAL_ERROR
 import java.net.HttpURLConnection.HTTP_NOT_FOUND
-import java.net.HttpURLConnection.HTTP_SERVICE_UNAVAILABLE
 import java.net.HttpURLConnection.HTTP_UNAUTHORIZED
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
