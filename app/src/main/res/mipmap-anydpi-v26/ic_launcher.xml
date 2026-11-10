@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive launcher icon. minSdk is 26, so this is the only density-independent variant the app
+  needs; the two layers are vectors (drawable/ic_launcher_background.xml,
+  ic_launcher_foreground.xml). The mark is this client's own "A", not Arena's branding, because this
+  is an independent client and must not look official.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

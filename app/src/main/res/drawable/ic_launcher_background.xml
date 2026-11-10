@@ -1,0 +1,26 @@
+<!--
+  Launcher icon background layer. Dark charcoal with one violet sweep, matching the app's own
+  palette (ui/theme/Color.kt). Deliberately not Arena's marketing artwork: this is an independent
+  client, so it must not borrow the service's branding.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#0B0B0D"
+        android:pathData="M0,0h108v108h-108z" />
+    <path
+        android:fillColor="#121317"
+        android:pathData="M0,72 L108,20 L108,108 L0,108 Z" />
+    <path
+        android:fillColor="#8B5CF6"
+        android:fillAlpha="0.16"
+        android:pathData="M0,84 L108,34 L108,48 L0,98 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,54m-36,0a36,36 0 1,0 72,0a36,36 0 1,0 -72,0"
+        android:strokeColor="#1D3B34"
+        android:strokeWidth="1.5" />
+</vector>

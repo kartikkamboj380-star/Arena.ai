@@ -1,0 +1,10 @@
+<resources>
+    <!-- Native window theme: keeps the first frame on the app's dark charcoal palette so the
+         WebView never flashes white. -->
+    <style name="Theme.Arena" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/arena_charcoal</item>
+        <item name="android:navigationBarColor">@color/arena_black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

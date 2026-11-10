@@ -1,0 +1,18 @@
+<!--
+  Launcher icon foreground: a geometric "A" (for "Arena") built as one even-odd path so the
+  counter stays transparent, with a violet crossbar. Kept inside the 66dp safe zone of the
+  108dp adaptive canvas, so no launcher mask can clip the mark.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#34D399"
+        android:fillType="evenOdd"
+        android:pathData="M54,28 L79,80 L67,80 L62.4,69.6 L45.6,69.6 L41,80 L29,80 Z M48.9,60.6 L59.1,60.6 L54,48.4 Z" />
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M45.6,69.6 L62.4,69.6 L65.2,75.8 L42.8,75.8 Z" />
+</vector>
