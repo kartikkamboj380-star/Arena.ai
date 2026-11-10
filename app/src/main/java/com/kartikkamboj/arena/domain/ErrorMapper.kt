@@ -66,16 +66,15 @@ object ErrorMapper {
         is SocketTimeoutException -> ErrorKind.TIMEOUT
         is UnknownHostException -> ErrorKind.NO_NETWORK
         is SSLException -> ErrorKind.TLS
-        else -> when {
-            val message = error.message.orEmpty().lowercase()
+        else -> {
             // Android's own wording for a radio going away arrives as a plain IllegalStateException,
             // so the message is the only signal; anything unrecognised stays SERVER rather than being
             // dressed up as a connectivity problem the user cannot act on.
-            message.contains("enetunreach") || message.contains("econnunreach") ||
+            val message = error.message.orEmpty().lowercase()
+            val noNetwork = message.contains("enetunreach") || message.contains("econnunreach") ||
                 message.contains("no network") || message.contains("network is no longer available") ||
-                message.contains("unable to resolve host") -> ErrorKind.NO_NETWORK
-
-            else -> ErrorKind.SERVER
+                message.contains("unable to resolve host")
+            if (noNetwork) ErrorKind.NO_NETWORK else ErrorKind.SERVER
         }
     }
 
