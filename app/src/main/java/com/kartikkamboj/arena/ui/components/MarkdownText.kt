@@ -97,7 +97,7 @@ fun MarkdownText(
                             Text(
                                 text = if (block.ordered) "${index + 1}." else "•",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = ArenaPalette.Violet,
+                                color = ArenaPalette.Emerald,
                                 modifier = Modifier.width(if (block.ordered) 24.dp else 18.dp),
                             )
                             Text(
@@ -145,7 +145,7 @@ private fun annotated(parts: List<MdInline>, base: TextStyle): AnnotatedString =
                     textDecoration = if (isLink) TextDecoration.Underline else base.textDecoration,
                     background = if (isCode) MaterialTheme.colorScheme.surfaceVariant else Color.Unspecified,
                     color = when {
-                        isLink -> ArenaPalette.Cyan
+                        isLink -> ArenaPalette.EmeraldSoft
                         else -> base.color
                     },
                 ),

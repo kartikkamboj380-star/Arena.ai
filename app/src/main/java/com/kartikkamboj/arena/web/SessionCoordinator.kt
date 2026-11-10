@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Environment
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -26,6 +27,7 @@ import com.kartikkamboj.arena.data.prefs.SettingsSource
 import com.kartikkamboj.arena.data.repo.AccountRepository
 import com.kartikkamboj.arena.data.repo.HistoryRepository
 import com.kartikkamboj.arena.data.repo.ModelRepository
+import com.kartikkamboj.arena.data.repo.ProjectRepository
 import com.kartikkamboj.arena.data.repo.RestoreOutcome
 import com.kartikkamboj.arena.data.repo.SessionIsolation
 import com.kartikkamboj.arena.domain.ErrorMapper
@@ -80,6 +82,7 @@ class SessionCoordinator(
     private val network: NetworkMonitor,
     private val clock: Clock,
     private val rateLimits: RateLimitMonitor,
+    private val projects: ProjectRepository,
     private val scope: CoroutineScope,
 ) : SessionListener {
 
@@ -100,10 +103,25 @@ class SessionCoordinator(
 
     private var webView: WebView? = null
     private var boundSlot: Int? = null
+    private var signInUntilMillis = 0L
     private var pendingChooser: ValueCallback<Array<Uri>>? = null
     private var probeToken = 0
 
     val selectedSlot: Int? get() = accounts.registry.value.selectedSlot
+
+    /**
+     * How long a sign-in may keep the identity provider loadable in-app. Long enough for a redirect
+     * chain and a password manager, short enough that a forgotten flow cannot strand the session
+     * somewhere else — after it expires, navigation is arena-only again.
+     */
+    private val signInWindowMillis = 5L * 60_000L
+
+    /**
+     * True while a sign-in is in flight. [ArenaWebViewClient] reads this through
+     * [SessionListener.shouldAllowIdentityHost] so the provider finishes inside this app's cookie
+     * jar instead of in a browser whose cookies this slot can never receive.
+     */
+    val signInInFlight: Boolean get() = clock.nowMillis() < signInUntilMillis
 
     /** Whether a live web view exists for the current slot; the UI gates actions on this. */
     val hasSessionView: Boolean get() = webView != null
@@ -127,15 +145,41 @@ class SessionCoordinator(
         val themed = ContextThemeWrapper(application, R.style.Theme_Arena)
         val view = WebView(themed)
         configure(view.settings)
+        // Sign-in fix, in one line: the identity providers Arena links out to carry their state
+        // through a cross-site redirect, and a WebView that rejects third-party cookies drops it. The
+        // user then lands back on arena.ai anonymous — the "login redirects to the homepage" symptom.
+        // Scoped to *this* view (never CookieManager's global default), it is what a normal browser
+        // does, and it cannot leak between slots: the jar is captured and swapped around it.
+        runCatching { CookieManager.getInstance().setAcceptThirdPartyCookies(view, true) }
+            .onFailure { AppLog.w("could not enable third-party cookies for the session view", it) }
         view.isVerticalScrollBarEnabled = false
         view.overScrollMode = View.OVER_SCROLL_NEVER
         view.setBackgroundColor(Color.TRANSPARENT)
         view.setDownloadListener { url, _, _, mimeType, length ->
             onDownloadRequested(url, "", mimeType, length)
         }
+        // Rebuilding after a memory-pressure release has to put the reader back where they were; a
+        // fresh blank WebView would look exactly like the conversation had been thrown away.
+        val resumeUrl = _state.value.url
+        if (resumeUrl.isNotBlank() && ArenaUrls.isArenaUrl(resumeUrl)) {
+            view.post { load(view, resumeUrl, force = true) }
+        }
         webView = view
         bindClients(view)
         return view
+    }
+
+    /**
+     * Gives the WebView back under memory pressure without losing anything: the jar is captured first,
+     * the url is remembered in [state] so the next attach reloads the same page, and the session state
+     * itself is untouched. Called only from [com.kartikkamboj.arena.di.AppContainer.onLowMemory].
+     */
+    fun releaseForMemoryPressure() {
+        val slot = boundSlot
+        if (slot != null) {
+            scope.launch { runCatching { accounts.refreshJar(slot) } }
+        }
+        destroyView()
     }
 
     private fun configure(target: WebSettings) = with(target) {
@@ -156,7 +200,10 @@ class SessionCoordinator(
         mediaPlaybackRequiresUserGesture = true
         setGeolocationEnabled(false)
         safeBrowsingEnabled = true
-        offscreenPreRaster = true
+        // Off-screen pre-rastering keeps a second full-page buffer per frame. On a 2 GB device that
+        // memory is better spent on the page the user can actually see, so it stays off; the price is
+        // a slightly longer first paint after a fling, which is the right trade here.
+        offscreenPreRaster = false
         loadsImagesAutomatically = true
         textZoom = 100
         // Deliberately untouched: no custom user agent, no UA trimming, no platform masquerading.
@@ -389,12 +436,14 @@ class SessionCoordinator(
             return
         }
         scope.launch {
+            val project = projects.activeId
             history.trackOpen(
                 slot = slot,
                 mode = modeFor(url),
                 url = url,
                 model = models.activeSelection(),
                 titleHint = view.title?.takeIf { it.isNotBlank() },
+                projectId = project,
             )
             _notice.value = UiNotice(
                 "Tracked this page in Account $slot's local history. Arena still owns the transcript.",
@@ -475,6 +524,33 @@ class SessionCoordinator(
      * "Reconnect" — loads the real arena.ai page in this slot's jar so the site's own sign-in UI
      * handles credentials. The app never renders a login form and never reads one.
      */
+    /**
+     * Starts a sign-in for [slot]: opens the site's own sign-in page in this slot's view and keeps
+     * the identity provider in the app for the duration. Credentials are still typed into Arena's
+     * page, never into this client, and nothing is reported as signed-in until a probe says so.
+     */
+    fun beginSignIn(slot: Int = selectedSlot ?: 0) {
+        signInUntilMillis = clock.nowMillis() + signInWindowMillis
+        reconnect(slot)
+    }
+
+    fun endSignIn() {
+        signInUntilMillis = 0L
+    }
+
+    override fun shouldAllowIdentityHost(): Boolean = signInInFlight
+
+    /** A popup whose target this client could not read: tell the user instead of dropping the tap. */
+    override fun onPopupUnresolvable() {
+        _notice.value = UiNotice(
+            "That button asked for a popup window, which this app does not open. Use \"Sign in in " +
+                "this page\" so the flow stays inside the session view.",
+            UiNotice.Kind.INFO,
+            "Sign in here",
+            UiAction.RECONNECT,
+        )
+    }
+
     fun reconnect(slot: Int = selectedSlot ?: 0) {
         if (slot <= 0) {
             _notice.value = UiNotice("Create and select a slot first.", UiNotice.Kind.WARN, "Open Accounts", UiAction.OPEN_ACCOUNTS)
@@ -495,7 +571,8 @@ class SessionCoordinator(
         load(view, ArenaUrls.CHAT, force = true)
         _notice.value = UiNotice(
             "Use Arena's own sign-in on the page. Do not type credentials into this app — it has no " +
-                "login form, by design.",
+                "login form, by design. A tap on \"Log in\" is never treated as a signed-in account: " +
+                "the page is re-read and the verdict is reported as it comes back.",
             UiNotice.Kind.INFO,
         )
     }
@@ -518,13 +595,20 @@ class SessionCoordinator(
                 val account = accounts.find(slot) ?: return@launch
                 _state.update { state -> state.copy(authenticated = account.isAuthenticated) }
                 if (account.isAuthenticated) {
+                    val contentUrl = url.takeIf { ArenaUrls.isContentPath(it) }
                     history.trackOpen(
                         slot = slot,
                         mode = modeFor(url),
-                        url = url.takeIf { ArenaUrls.isContentPath(it) },
+                        url = contentUrl,
                         model = models.activeSelection(),
                         titleHint = _state.value.title.takeIf { it.isNotBlank() },
+                        projectId = projects.activeId,
                     )
+                    // Filing the pointer back onto the project is what makes "switch accounts, keep the
+                    // project" more than a slogan: the next visit knows which slot this thread lives in.
+                    if (contentUrl != null) {
+                        projects.activeId?.let { projects.linkConversation(it, contentUrl, slot) }
+                    }
                 }
                 scheduleProbe(420L)
             }
@@ -759,14 +843,37 @@ class SessionCoordinator(
                     accounts.find(slot)?.isAuthenticated == true,
             )
         }
-        when (result.verdict) {
-            ProbeVerdict.ANONYMOUS -> _notice.value = UiNotice(
-                "Arena is showing a signed-out page for ${accounts.find(slot)?.shortName ?: "this slot"}. " +
-                    "Your conversation stays in Arena's history; sign in to continue there.",
-                UiNotice.Kind.WARN,
-                "Sign in",
-                UiAction.RECONNECT,
+        if (result.verdict == ProbeVerdict.AUTHENTICATED && signInInFlight) {
+            // The flag comes off before anything else, so a provider can never stay loadable in-app,
+            // and the user is returned to the app's own entry point instead of being left wherever
+            // the redirect chain happened to stop (usually the marketing homepage).
+            endSignIn()
+            scope.launch { accounts.refreshJar(slot) }
+            _notice.value = UiNotice(
+                "Signed in as ${accounts.find(slot)?.shortName ?: "slot $slot"} — this slot's session is " +
+                    "stored encrypted and was verified against the page, not against the tap.",
+                UiNotice.Kind.SUCCESS,
             )
+            webView?.let { load(it, ArenaUrls.CHAT, force = true) }
+            return
+        }
+        when (result.verdict) {
+            ProbeVerdict.ANONYMOUS -> {
+                val hint = if (signInInFlight) {
+                    "That provider did not complete inside the app. Providers refuse some embedded " +
+                        "views; the account's own e-mail/password form on the same page works, and so " +
+                        "does \"Use your browser\" — but a browser session stays in the browser."
+                } else {
+                    "Your conversation stays in Arena's history; sign in to continue there."
+                }
+                _notice.value = UiNotice(
+                    "Arena is still showing a signed-out page for " +
+                        "${accounts.find(slot)?.shortName ?: "this slot"}. $hint",
+                    UiNotice.Kind.WARN,
+                    "Sign in",
+                    UiAction.RECONNECT,
+                )
+            }
 
             ProbeVerdict.AUTHENTICATED -> Unit
             ProbeVerdict.UNKNOWN -> AppLog.d("probe inconclusive for slot $slot (${transition.reason})")

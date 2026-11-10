@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Person
@@ -41,17 +42,26 @@ import com.kartikkamboj.arena.ui.screens.AccountsScreen
 import com.kartikkamboj.arena.ui.screens.ChatScreen
 import com.kartikkamboj.arena.ui.screens.HistoryScreen
 import com.kartikkamboj.arena.ui.screens.ModelsScreen
+import com.kartikkamboj.arena.ui.screens.ProjectsScreen
 import com.kartikkamboj.arena.ui.screens.SettingsScreen
 import com.kartikkamboj.arena.web.UiAction
 import com.kartikkamboj.arena.ui.theme.ArenaTheme
 
-/** The five sections of the app, in bottom-bar order. */
+/**
+ * The sections of the app, in bottom-bar order.
+ *
+ * [inBar] is false for Projects on purpose: five tabs is the most a 5-inch screen labels legibly, and
+ * a project is not a place you navigate to, it is the thing you are already looking at — so it opens
+ * from the Chat header strip and from History, and keeps its own route for state restoration.
+ */
 enum class ArenaDestination(
     val route: String,
     val label: String,
     val icon: ImageVector,
+    val inBar: Boolean = true,
 ) {
     CHAT("chat", "Chat", Icons.Filled.Forum),
+    PROJECTS("projects", "Projects", Icons.Filled.Folder, inBar = false),
     MODELS("models", "Models", Icons.Filled.Memory),
     HISTORY("history", "History", Icons.Filled.History),
     ACCOUNTS("accounts", "Accounts", Icons.Filled.Person),
@@ -148,6 +158,9 @@ fun ArenaApp(
                     composable(ArenaDestination.CHAT.route) {
                         ChatScreen(container = container, navigator = navController)
                     }
+                    composable(ArenaDestination.PROJECTS.route) {
+                        ProjectsScreen(container = container, navigator = navController)
+                    }
                     composable(ArenaDestination.MODELS.route) {
                         ModelsScreen(container = container, navigator = navController)
                     }
@@ -178,7 +191,10 @@ private fun handleNoticeAction(
 ) {
     when (action) {
         UiAction.RECONNECT -> {
-            container.session.reconnect()
+            // Not a plain reload: this starts the sign-in window in which the identity provider is
+            // allowed to finish inside the app, which is what makes the session land in this slot's
+            // jar instead of in a browser this client cannot read.
+            container.session.beginSignIn()
             navigator.navigate(ArenaDestination.CHAT.route) { launchSingleTop = true }
         }
 
@@ -222,7 +238,7 @@ private fun ArenaBottomBar(currentRoute: String?, onSelect: (ArenaDestination) -
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
     ) {
-        ArenaDestination.entries.forEach { destination ->
+        ArenaDestination.entries.filter { it.inBar }.forEach { destination ->
             val selected = currentRoute == destination.route
             NavigationBarItem(
                 selected = selected,

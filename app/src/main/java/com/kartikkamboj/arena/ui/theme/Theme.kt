@@ -77,34 +77,43 @@ private val ArenaTypography = Typography(
         lineHeight = 18.sp,
         letterSpacing = 0.2.sp,
     ),
+    // Micro-labels are monospaced and wide-tracked: the one typographic signature of this app. It
+    // costs no font loading (a platform family), and it makes status text read as instrumentation
+    // rather than as prose the user is meant to parse.
     labelMedium = TextStyle(
+        fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.4.sp,
+        letterSpacing = 0.6.sp,
     ),
     labelSmall = TextStyle(
+        fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 14.sp,
-        letterSpacing = 0.6.sp,
+        letterSpacing = 0.8.sp,
     ),
 )
 
+// Radii are deliberately smaller than a material-default UI: at 12-16 dp a panel still reads as a
+// tool, while 28+ reads as a consumer card. This screen is a workspace, not a feed.
 private val ArenaShapes = Shapes(
-    extraSmall = RoundedCornerShape(10.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(32.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(26.dp),
 )
 
 private val DarkScheme = darkColorScheme(
-    primary = ArenaPalette.Violet,
+    // One accent does the work a gradient would otherwise be used for: emerald is "the app agrees",
+    // amber is "the app needs you", rose is "this failed". Nothing else is colourful on purpose.
+    primary = ArenaPalette.Emerald,
     onPrimary = ArenaPalette.OnAccent,
     primaryContainer = ArenaPalette.SurfaceHigh,
     onPrimaryContainer = ArenaPalette.Text,
-    secondary = ArenaPalette.Cyan,
+    secondary = ArenaPalette.Amber,
     onSecondary = ArenaPalette.OnAccent,
     tertiary = ArenaPalette.Mint,
     onTertiary = ArenaPalette.OnAccent,
@@ -122,11 +131,11 @@ private val DarkScheme = darkColorScheme(
 )
 
 private val LightScheme = lightColorScheme(
-    primary = ArenaPalette.Violet,
+    primary = Color(0xFF0E7A55),
     onPrimary = Color.White,
     primaryContainer = ArenaPalette.LightSurfaceVariant,
     onPrimaryContainer = ArenaPalette.LightText,
-    secondary = Color(0xFF0E7491),
+    secondary = Color(0xFF8A5A12),
     onSecondary = Color.White,
     tertiary = Color(0xFF0F766E),
     onTertiary = Color.White,

@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Person
@@ -71,8 +73,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.kartikkamboj.arena.data.model.AccountStatus
 import com.kartikkamboj.arena.data.model.ArenaAccount
+import com.kartikkamboj.arena.data.model.ProjectContext
 import com.kartikkamboj.arena.data.model.SessionState
 import com.kartikkamboj.arena.di.AppContainer
+import com.kartikkamboj.arena.domain.ProjectPolicy
 import com.kartikkamboj.arena.ui.ArenaDestination
 import com.kartikkamboj.arena.ui.components.ArenaCard
 import com.kartikkamboj.arena.ui.components.EmptyState
@@ -123,6 +127,11 @@ fun ChatScreen(container: AppContainer, navigator: NavHostController) {
             onOpenModels = { navigator.navigate(ArenaDestination.MODELS.route) },
         )
 
+        ProjectStrip(
+            container = container,
+            onOpenProjects = { navigator.navigate(ArenaDestination.PROJECTS.route) { launchSingleTop = true } },
+        )
+
         AnimatedVisibility(
             visible = session.loading,
             enter = fadeIn(tween(120)),
@@ -133,7 +142,7 @@ fun ChatScreen(container: AppContainer, navigator: NavHostController) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp),
-                color = ArenaPalette.Violet,
+                color = ArenaPalette.Emerald,
                 trackColor = Color.Transparent,
                 strokeCap = StrokeCap.Round,
                 gapSize = 0.dp,
@@ -176,7 +185,7 @@ fun ChatScreen(container: AppContainer, navigator: NavHostController) {
                 SignInPrompt(
                     account = account,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    onSignIn = { container.session.reconnect(account.slot) },
+                    onSignIn = { container.session.beginSignIn(account.slot) },
                     onBrowserSignIn = { container.session.handOffLoginToBrowser() },
                 )
             }
@@ -231,7 +240,7 @@ fun ChatScreen(container: AppContainer, navigator: NavHostController) {
                     ) {
                         LinearProgressIndicator(
                             modifier = Modifier.size(20.dp),
-                            color = ArenaPalette.Cyan,
+                            color = ArenaPalette.Amber,
                             trackColor = Color.Transparent,
                         )
                     }
@@ -294,14 +303,14 @@ private fun ChatHeader(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(RoundedCornerShape(11.dp))
-                    .background(Brush.linearGradient(listOf(ArenaPalette.Violet, ArenaPalette.Cyan))),
+                    .background(Brush.linearGradient(listOf(ArenaPalette.Emerald, ArenaPalette.Amber))),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "A",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0B0B0D),
+                    color = ArenaPalette.OnAccent,
                 )
             }
             Spacer(Modifier.width(11.dp))
@@ -438,6 +447,77 @@ private fun SignInPrompt(
 }
 
 @Composable
+/**
+ * The project line: which workspace is open, whether Arena's own conversation can be continued from
+ * the account on screen, and how much local history belongs to it. Tapping it opens the workspace —
+ * switching accounts never moves this line, which is the whole point of the feature.
+ */
+@Composable
+private fun ProjectStrip(container: AppContainer, onOpenProjects: () -> Unit) {
+    val registry by container.projects.registry.collectAsStateWithLifecycle()
+    val accounts by container.accounts.registry.collectAsStateWithLifecycle()
+    val threads by container.history.threads.collectAsStateWithLifecycle()
+    val project = container.projects.find(registry.activeId)
+    val context = if (project == null) {
+        ProjectContext.LOCAL_ONLY
+    } else {
+        ProjectPolicy.contextOf(project, accounts.selectedSlot)
+    }
+    val ownedBy = project?.conversationSlot?.let { wanted ->
+        accounts.accounts.firstOrNull { it.slot == wanted }?.shortName
+    }
+    val count = threads.count { it.projectId == project?.id }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(ArenaPalette.SurfaceLow)
+            .clickable(onClick = onOpenProjects)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Folder,
+            contentDescription = null,
+            tint = when (context) {
+                ProjectContext.CONTINUES -> ArenaPalette.Emerald
+                ProjectContext.OTHER_ACCOUNT -> ArenaPalette.Amber
+                ProjectContext.LOCAL_ONLY -> ArenaPalette.TextMuted
+            },
+            modifier = Modifier.size(15.dp),
+        )
+        Spacer(Modifier.width(9.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = project?.name ?: "No project — tap to create one",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+            )
+            Text(
+                text = when (context) {
+                    ProjectContext.CONTINUES -> "continues here · $count local thread(s)"
+                    ProjectContext.OTHER_ACCOUNT -> "conversation belongs to ${ownedBy ?: "another account"}"
+                    ProjectContext.LOCAL_ONLY -> "local workspace · $count thread(s) filed"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        Icon(
+            imageVector = Icons.Filled.ExpandMore,
+            contentDescription = "Open projects",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
 private fun ChatToolbar(container: AppContainer, session: SessionState) {
     val enabled = container.session.hasSessionView
     Row(
@@ -501,9 +581,9 @@ private fun DraftBar(container: AppContainer, enabled: Boolean, modifier: Modifi
                 },
             ),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = ArenaPalette.Violet,
+                focusedBorderColor = ArenaPalette.Emerald,
                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                cursorColor = ArenaPalette.Cyan,
+                cursorColor = ArenaPalette.Amber,
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = ArenaPalette.SurfaceLow.copy(alpha = 0.6f),
             ),

@@ -165,7 +165,7 @@ fun HistoryScreen(container: AppContainer, navigator: NavHostController) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 6.dp),
-                    color = ArenaPalette.Cyan,
+                    color = ArenaPalette.Amber,
                     trackColor = Color.Transparent,
                 )
             }

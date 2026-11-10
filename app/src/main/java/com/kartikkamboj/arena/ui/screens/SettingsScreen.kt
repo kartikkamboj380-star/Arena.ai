@@ -244,7 +244,7 @@ fun SettingsScreen(container: AppContainer, navigator: NavHostController) {
                     Text(
                         text = text,
                         style = MaterialTheme.typography.labelMedium,
-                        color = ArenaPalette.Cyan,
+                        color = ArenaPalette.Amber,
                     )
                 }
             }
@@ -280,7 +280,7 @@ fun SettingsScreen(container: AppContainer, navigator: NavHostController) {
                 )
                 Spacer(Modifier.height(10.dp))
                 if (busy && report == null) {
-                    Text("Reading…", style = MaterialTheme.typography.labelMedium, color = ArenaPalette.Cyan)
+                    Text("Reading…", style = MaterialTheme.typography.labelMedium, color = ArenaPalette.Amber)
                 }
                 report?.lines?.forEach { line ->
                     Row(
@@ -487,8 +487,8 @@ private fun ToggleRow(
             checked = checked,
             onCheckedChange = onToggle,
             colors = SwitchDefaults.colors(
-                checkedTrackColor = ArenaPalette.Violet,
-                checkedThumbColor = Color(0xFF0B0B0D),
+                checkedTrackColor = ArenaPalette.Emerald,
+                checkedThumbColor = ArenaPalette.OnAccent,
                 uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
                 uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
             ),

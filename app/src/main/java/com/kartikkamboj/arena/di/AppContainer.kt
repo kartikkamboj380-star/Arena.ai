@@ -1,6 +1,7 @@
 package com.kartikkamboj.arena.di
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.webkit.CookieManager
 import com.kartikkamboj.arena.core.AppLog
 import com.kartikkamboj.arena.core.Clock
@@ -10,6 +11,7 @@ import com.kartikkamboj.arena.data.prefs.SettingsRepository
 import com.kartikkamboj.arena.data.repo.AccountRepository
 import com.kartikkamboj.arena.data.repo.HistoryRepository
 import com.kartikkamboj.arena.data.repo.ModelRepository
+import com.kartikkamboj.arena.data.repo.ProjectRepository
 import com.kartikkamboj.arena.data.repo.SessionIsolation
 import com.kartikkamboj.arena.data.secure.BlobCipher
 import com.kartikkamboj.arena.data.secure.EncryptedBlobStore
@@ -85,6 +87,16 @@ class AppContainer(private val application: Application) {
 
     val models: ModelRepository = ModelRepository(store = jsonStore, clock = clock)
 
+    /**
+     * The project workspace. It sits *above* accounts and history on purpose: a project is the thing
+     * that survives an account switch, so it may not be owned by either of them.
+     */
+    val projects: ProjectRepository = ProjectRepository(
+        store = jsonStore,
+        clock = clock,
+        history = history,
+    )
+
     val rateLimits: RateLimitMonitor = RateLimitMonitor(clock)
 
     val session: SessionCoordinator by lazy {
@@ -98,6 +110,7 @@ class AppContainer(private val application: Application) {
             network = network,
             clock = clock,
             rateLimits = rateLimits,
+            projects = projects,
             scope = scope,
         )
     }
@@ -125,16 +138,33 @@ class AppContainer(private val application: Application) {
             models.load()
             accounts.load()
             accounts.markTtlExpiry()
-            AppLog.d("container ready: ${accounts.accounts.size} slot(s)")
+            AppLog.d(
+                "container ready: ${accounts.accounts.size} slot(s), ${projects.projects.size} project(s)",
+            )
+        }
+        scope.launch {
+            // One rule, watched in one place: whatever the accounts do, the active project is only
+            // annotated. No project is created, switched or reset by an account change.
+            accounts.selection.collect { slot -> projects.onAccountChanged(slot) }
         }
     }
 
+    /**
+     * Response to `onTrimMemory`. Two rules shape it: everything the app owns is written down before
+     * anything is given back, and no branch of it may touch authentication state.
+     *
+     * At ordinary pressure there is nothing honest to release — the caches are small and the page in
+     * view is the user's work — so the only action is a flush of the cookie store. At
+     * `TRIM_MEMORY_COMPLETE` the WebView goes: it is by far the largest object in this process
+     * (renderer plus paint hierarchy), it is disposable, and the session it carried was already
+     * captured into the encrypted blob store, so the next attach rebuilds it and reloads the same page.
+     */
     fun onLowMemory(level: Int) {
-        // android.webkit.WebView exposes no public cache-trimming API — the framework forwards
-        // onTrimMemory to the renderer itself. What this app *can* guarantee before it becomes a
-        // reclaim candidate is that the session material it owns is durably on disk.
-        AppLog.d("low memory (level $level): flushing the cookie store")
+        AppLog.d("memory pressure (level $level): flushing the cookie store")
         runCatching { CookieManager.getInstance().flush() }
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
+            session.releaseForMemoryPressure()
+        }
     }
 
     /** Removes everything this app stored locally. Never touches Arena's own data. */

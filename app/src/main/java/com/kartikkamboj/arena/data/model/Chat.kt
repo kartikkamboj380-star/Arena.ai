@@ -76,6 +76,12 @@ data class ThreadRecord(
     val pinned: Boolean = false,
     val model: ModelSelection? = null,
     val source: ThreadSource = ThreadSource.LOCAL,
+    /**
+     * The project this thread was opened from, if any. Optional and nullable: history rows predate the
+     * workspace, and a thread the user never filed is *not* silently assigned to whatever happens to
+     * be on screen — that would invent a relationship the user did not make.
+     */
+    val projectId: String? = null,
 )
 
 @Serializable

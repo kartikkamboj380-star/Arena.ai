@@ -273,7 +273,7 @@ private fun ModeCard(mode: ArenaMode, selected: Boolean, onOpen: () -> Unit) {
             .border(
                 androidx.compose.foundation.BorderStroke(
                     1.dp,
-                    if (selected) ArenaPalette.Violet.copy(alpha = 0.5f) else Color.Transparent,
+                    if (selected) ArenaPalette.Emerald.copy(alpha = 0.5f) else Color.Transparent,
                 ),
                 shape,
             )
@@ -284,7 +284,7 @@ private fun ModeCard(mode: ArenaMode, selected: Boolean, onOpen: () -> Unit) {
             Icon(
                 imageVector = Icons.Filled.Memory,
                 contentDescription = null,
-                tint = if (selected) ArenaPalette.Violet else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (selected) ArenaPalette.Emerald else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(8.dp))
@@ -305,7 +305,7 @@ private fun ModeCard(mode: ArenaMode, selected: Boolean, onOpen: () -> Unit) {
         Text(
             text = if (mode.revealsModelIdentity) "model identity visible" else "identity revealed after voting",
             style = MaterialTheme.typography.labelSmall,
-            color = if (mode.revealsModelIdentity) ArenaPalette.Cyan else ArenaPalette.Amber,
+            color = if (mode.revealsModelIdentity) ArenaPalette.Amber else ArenaPalette.Amber,
         )
     }
 }
@@ -320,8 +320,8 @@ private fun ModelRow(
 ) {
     val tint = when (entry.availability) {
         ModelAvailability.INFORMATIONAL_ONLY -> ArenaPalette.TextMuted
-        ModelAvailability.SELECTABLE_IN_WEB_UI -> ArenaPalette.Cyan
-        ModelAvailability.AUTOMATIC -> ArenaPalette.Violet
+        ModelAvailability.SELECTABLE_IN_WEB_UI -> ArenaPalette.Amber
+        ModelAvailability.AUTOMATIC -> ArenaPalette.Emerald
         ModelAvailability.UNAVAILABLE -> ArenaPalette.Rose
     }
     ArenaCard(

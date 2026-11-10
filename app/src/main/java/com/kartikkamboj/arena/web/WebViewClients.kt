@@ -37,6 +37,15 @@ interface SessionListener {
     fun onFileChooserRequested(callback: ValueCallback<Array<Uri>>, acceptTypes: Array<String>, allowMultiple: Boolean)
     fun onDownloadRequested(url: String, userAgent: String, mimeType: String, contentLength: Long)
     fun onFirstPaint()
+
+    /**
+     * Whether an identity provider may load inside the app right now. True only while a sign-in is
+     * in flight — see [NavigationPolicy.classify].
+     */
+    fun shouldAllowIdentityHost(): Boolean = false
+
+    /** A popup was requested for a target this client cannot read; the user must be told, not stalled. */
+    fun onPopupUnresolvable() {}
 }
 
 /**
@@ -53,7 +62,7 @@ class ArenaWebViewClient(
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         val url = request?.url?.toString() ?: return true
-        return when (val decision = NavigationPolicy.classify(url)) {
+        return when (val decision = NavigationPolicy.classify(url, listener.shouldAllowIdentityHost())) {
             is NavigationPolicy.Decision.LoadInSession -> false
 
             is NavigationPolicy.Decision.HandOffToBrowser -> {
@@ -155,9 +164,15 @@ class ArenaWebChromeClient(
     }
 
     /**
-     * `window.open()` — Arena's identity providers use it. The stub view exists only long enough to
-     * learn the URL it was opened for, which is then handed to the browser, because the provider
-     * will refuse the embedded view anyway and spoofing our way past that is not on the table.
+     * `window.open()` — the site uses it for sign-in popups, and a popup the app cannot host is the
+     * reason a sign-in used to end back on the logged-out homepage.
+     *
+     * This client keeps exactly one WebView per device (see docs/LOW_RAM.md), so no second view is
+     * created here, not even a short-lived stub. Instead the link the gesture hit is resolved
+     * through [NavigationPolicy] and followed *in this view*: the popup's cookies then land in the
+     * slot's own jar, which is what makes the session usable afterwards. A URL that policy will not
+     * load in-session is handed to the browser, and a gesture whose target cannot be determined is
+     * reported rather than swallowed — a silently dead button is worse than an honest refusal.
      */
     override fun onCreateWindow(
         view: WebView?,
@@ -166,33 +181,23 @@ class ArenaWebChromeClient(
         resultMsg: Message?,
     ): Boolean {
         if (!isUserGesture || view == null) return false
-        val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
-        val stub = WebView(view.context).apply {
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(target: WebView?, request: WebResourceRequest?): Boolean {
-                    val url = request?.url?.toString().orEmpty()
-                    when (val decision = NavigationPolicy.classify(url)) {
-                        is NavigationPolicy.Decision.LoadInSession -> {
-                            // Same-site popups belong in the slot's own session.
-                            view.loadUrl(url)
-                        }
-
-                        is NavigationPolicy.Decision.HandOffToBrowser ->
-                            listener.onExternalNavigation(decision.url, decision.reason)
-
-                        is NavigationPolicy.Decision.Block ->
-                            listener.onBlockedNavigation(decision.url, decision.reason)
-                    }
-                    // Detach the stub only after the hand-off decision has been made; destroying a
-                    // WebView inside its own client callback is a crash waiting to happen.
-                    target?.post { runCatching { target.destroy() } }
-                    return true
-                }
-            }
+        val hit = runCatching { view.hitTestResult }.getOrNull()
+        val target = hit?.takeIf { it.type == WebView.HIT_TEST_LINK_TYPE }?.extra
+        if (target.isNullOrBlank()) {
+            listener.onPopupUnresolvable()
+            return false
         }
-        transport.webView = stub
-        resultMsg?.sendToTarget()
-        return true
+        val absolute = ArenaUrls.absolute(target, view.url) ?: target
+        when (val decision = NavigationPolicy.classify(absolute, listener.shouldAllowIdentityHost())) {
+            is NavigationPolicy.Decision.LoadInSession -> view.loadUrl(decision.url)
+            is NavigationPolicy.Decision.HandOffToBrowser ->
+                listener.onExternalNavigation(decision.url, decision.reason)
+
+            is NavigationPolicy.Decision.Block ->
+                listener.onBlockedNavigation(decision.url, decision.reason)
+        }
+        // Returning false keeps the framework from building the window we just served ourselves.
+        return false
     }
 
     override fun onCloseWindow(window: WebView?) {

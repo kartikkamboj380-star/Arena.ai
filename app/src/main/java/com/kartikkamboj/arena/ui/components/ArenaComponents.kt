@@ -34,10 +34,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -76,28 +74,32 @@ fun ArenaCard(
     )
 }
 
-/** Ambient violet/cyan wash behind a screen header. Pure decoration, `semantics` off by design. */
+/**
+ * The screen's ground: a flat obsidian field with one hairline under the header line.
+ *
+ * There used to be a blurred colour blob here. It cost a full-screen render pass on every frame the
+ * header was on screen, which on a 2 GB device is memory and GPU time taken away from the page the
+ * user is reading — and a gradient wash is also the single most generic thing a dark AI UI can do.
+ * Depth in this app comes from surface steps and 1 dp hairlines, which cost nothing to draw.
+ */
 @Composable
 fun ArenaBackdrop(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    0f to if (LocalDarkTheme.current) ArenaPalette.Black else ArenaPalette.LightBackground,
-                    0.35f to if (LocalDarkTheme.current) ArenaPalette.Charcoal else ArenaPalette.LightBackground,
-                    1f to if (LocalDarkTheme.current) ArenaPalette.SurfaceLow else ArenaPalette.LightSurface,
-                ),
+                if (LocalDarkTheme.current) ArenaPalette.Charcoal else ArenaPalette.LightBackground,
             ),
     ) {
         Box(
             modifier = Modifier
-                .padding(top = (-90).dp)
-                .size(320.dp)
                 .align(Alignment.TopCenter)
-                .clip(CircleShape)
-                .background(if (LocalDarkTheme.current) Color(0x337C5CFF) else Color(0x147C5CFF))
-                .blur(46.dp),
+                .padding(top = 78.dp)
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    if (LocalDarkTheme.current) ArenaPalette.OutlineSoft else ArenaPalette.LightOutline,
+                ),
         )
     }
 }
@@ -177,7 +179,7 @@ fun statusLabelAndColor(status: AccountStatus): Pair<String, Color> {
     val dark = LocalDarkTheme.current
     return when (status) {
         AccountStatus.NOT_CONNECTED -> "Not connected" to if (dark) ArenaPalette.TextMuted else ArenaPalette.LightTextMuted
-        AccountStatus.CONNECTING -> "Connecting" to ArenaPalette.Cyan
+        AccountStatus.CONNECTING -> "Connecting" to ArenaPalette.Amber
         AccountStatus.CONNECTED -> "Connected" to ArenaPalette.Mint
         AccountStatus.LOGIN_REQUIRED -> "Login required" to ArenaPalette.Amber
         AccountStatus.SESSION_EXPIRED -> "Session expired" to ArenaPalette.Rose
@@ -197,8 +199,8 @@ fun InfoChip(
 ) {
     val shape = RoundedCornerShape(14.dp)
     val container = when {
-        selected && dark() -> Color(0x2E7C5CFF)
-        selected -> Color(0x1F7C5CFF)
+        selected && dark() -> ArenaPalette.Emerald.copy(alpha = 0.16f)
+        selected -> ArenaPalette.Emerald.copy(alpha = 0.11f)
         dark() -> ArenaPalette.SurfaceVariant
         else -> ArenaPalette.LightSurfaceVariant
     }
@@ -207,7 +209,7 @@ fun InfoChip(
             .clip(shape)
             .background(container)
             .border(
-                BorderStroke(1.dp, if (selected) ArenaPalette.Violet.copy(alpha = 0.5f) else Color.Transparent),
+                BorderStroke(1.dp, if (selected) ArenaPalette.Emerald.copy(alpha = 0.5f) else Color.Transparent),
                 shape,
             )
             .then(if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier)
@@ -292,7 +294,7 @@ fun NoticeBanner(
     onDismiss: () -> Unit,
 ) {
     val tint = when (tone) {
-        NoticeTone.INFO -> ArenaPalette.Cyan
+        NoticeTone.INFO -> ArenaPalette.Amber
         NoticeTone.SUCCESS -> ArenaPalette.Mint
         NoticeTone.WARN -> ArenaPalette.Amber
         NoticeTone.ERROR -> ArenaPalette.Rose
@@ -370,8 +372,7 @@ fun PrimaryButton(
         modifier = modifier
             .clip(shape)
             .background(
-                if (enabled) Brush.horizontalGradient(listOf(ArenaPalette.Violet, ArenaPalette.VioletSoft))
-                else Brush.horizontalGradient(listOf(Color(0xFF2A2E37), Color(0xFF2A2E37))),
+                if (enabled) ArenaPalette.Emerald else Color(0xFF23282A)
             )
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -383,7 +384,7 @@ fun PrimaryButton(
                 leadingIcon,
                 contentDescription = null,
                 modifier = Modifier.size(17.dp),
-                tint = if (enabled) Color(0xFF0B0B0D) else ArenaPalette.TextFaint,
+                tint = if (enabled) ArenaPalette.OnAccent else ArenaPalette.TextFaint,
             )
             Spacer(Modifier.width(8.dp))
         }
@@ -391,7 +392,7 @@ fun PrimaryButton(
             text = text,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
-            color = if (enabled) Color(0xFF0B0B0D) else ArenaPalette.TextFaint,
+            color = if (enabled) ArenaPalette.OnAccent else ArenaPalette.TextFaint,
         )
     }
 }
@@ -450,7 +451,7 @@ fun EmptyState(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = ArenaPalette.Violet, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = null, tint = ArenaPalette.Emerald, modifier = Modifier.size(24.dp))
         }
         Spacer(Modifier.height(14.dp))
         Text(

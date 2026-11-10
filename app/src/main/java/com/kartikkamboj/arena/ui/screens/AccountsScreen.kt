@@ -232,7 +232,7 @@ fun AccountsScreen(container: AppContainer, navigator: NavHostController) {
                             Row(modifier = Modifier.padding(vertical = 4.dp)) {
                                 Text(
                                     text = "·",
-                                    color = ArenaPalette.Violet,
+                                    color = ArenaPalette.Emerald,
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.width(12.dp),
                                 )
@@ -258,7 +258,7 @@ fun AccountsScreen(container: AppContainer, navigator: NavHostController) {
                             Text(
                                 text = message,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = ArenaPalette.Cyan,
+                                color = ArenaPalette.Amber,
                                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
                             )
                         }
@@ -459,7 +459,7 @@ private fun AccountCard(
             .border(
                 BorderStroke(
                     width = if (selected) 1.4.dp else 1.dp,
-                    color = if (selected) ArenaPalette.Violet.copy(alpha = 0.35f + 0.35f * ringAlpha)
+                    color = if (selected) ArenaPalette.Emerald.copy(alpha = 0.35f + 0.35f * ringAlpha)
                     else MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
                 ),
                 shape,
@@ -472,7 +472,7 @@ private fun AccountCard(
                     .size(38.dp)
                     .clip(CircleShape)
                     .background(
-                        if (selected) Brush.linearGradient(listOf(ArenaPalette.Violet, ArenaPalette.Cyan))
+                        if (selected) Brush.linearGradient(listOf(ArenaPalette.Emerald, ArenaPalette.Amber))
                         else Brush.linearGradient(listOf(ArenaPalette.SurfaceVariant, ArenaPalette.SurfaceVariant)),
                     ),
                 contentAlignment = Alignment.Center,
@@ -481,7 +481,7 @@ private fun AccountCard(
                     text = "${account.slot}",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (selected) Color(0xFF0B0B0D) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (selected) ArenaPalette.OnAccent else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(Modifier.width(12.dp))

@@ -33,7 +33,13 @@ object NavigationPolicy {
         ;
     }
 
-    fun classify(rawUrl: String?): Decision {
+    /**
+     * [allowIdentityHosts] is set only while the user is actively signing a slot in: a session
+     * established in the system browser belongs to the browser's cookie jar and can never be moved
+     * into this slot, so handing the provider off mid-sign-in is what left users staring at the
+     * logged-out homepage. Ordinary navigation still leaves the arena origin for the browser.
+     */
+    fun classify(rawUrl: String?, allowIdentityHosts: Boolean = false): Decision {
         val url = rawUrl?.trim().orEmpty()
         if (url.isEmpty()) return Decision.Block(BlockReason.MALFORMED_URL, url)
 
@@ -66,7 +72,11 @@ object NavigationPolicy {
 
         return when {
             parsed.hasArenaHost -> Decision.LoadInSession(url)
-            parsed.hasIdentityHost -> Decision.HandOffToBrowser(url, HandoffReason.IDENTITY_PROVIDER)
+            parsed.hasIdentityHost -> if (allowIdentityHosts) {
+                Decision.LoadInSession(url)
+            } else {
+                Decision.HandOffToBrowser(url, HandoffReason.IDENTITY_PROVIDER)
+            }
             // An off-site https link is not dangerous, it is just not ours: the user's browser has
             // its own isolated cookie jar and platform TLS handling. Blocking a plain link the user
             // tapped would be the worse failure, so it leaves the app instead of hijacking the

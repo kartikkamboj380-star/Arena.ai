@@ -57,6 +57,7 @@ class HistoryRepository(
         url: String?,
         model: ModelSelection?,
         titleHint: String?,
+        projectId: String? = null,
     ): ThreadRecord {
         val now = clock.nowMillis()
         val key = url?.trimEnd('/') ?: "mode:${mode.name}"
@@ -70,6 +71,9 @@ class HistoryRepository(
                     mode = mode,
                     model = model ?: existing.model,
                     title = titleHint?.takeIf { it.isNotBlank() } ?: existing.title,
+                    // Filing is one-way on purpose: reopening a thread from another project moves the
+                    // row to that project, but a row opened with no project never loses its filing.
+                    projectId = projectId ?: existing.projectId,
                 )
             } else {
                 ThreadRecord(
@@ -81,6 +85,7 @@ class HistoryRepository(
                     lastOpenedAtMillis = now,
                     url = url,
                     model = model,
+                    projectId = projectId,
                 )
             }
             val updated = (listOf(record) + _threads.value.filterNot { it.id == record.id })
@@ -96,6 +101,23 @@ class HistoryRepository(
     private fun untitled(mode: ArenaMode): String = "${mode.label} session"
 
     suspend fun setNote(id: String, note: String) = mutate(id) { it.copy(note = note.take(MAX_NOTE)) }
+
+    /** Files a thread under a project ([projectId] null returns it to "unfiled"). */
+    suspend fun setProject(id: String, projectId: String?) = mutate(id) { it.copy(projectId = projectId) }
+
+    /** A project's own threads, newest first — the local half of "the conversation is preserved". */
+    fun threadsForProject(projectId: String?): List<ThreadRecord> =
+        if (projectId == null) emptyList() else _threads.value.filter { it.projectId == projectId }
+
+    /** Detaches every thread from a deleted project, keeping the rows themselves. */
+    suspend fun unfileProject(projectId: String) {
+        mutex.withLock {
+            _threads.value = _threads.value.map {
+                if (it.projectId == projectId) it.copy(projectId = null) else it
+            }
+            persistLocked()
+        }
+    }
 
     suspend fun setTitle(id: String, title: String) = mutate(id) {
         it.copy(title = title.trim().take(120).ifBlank { it.title })
