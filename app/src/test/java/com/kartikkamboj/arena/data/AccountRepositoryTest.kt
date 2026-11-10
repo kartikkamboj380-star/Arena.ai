@@ -82,14 +82,14 @@ class AccountRepositoryTest {
 
     @Test
     fun `selecting the current slot reports already-selected instead of churning the jar`() = runTest {
-        repo.add("A")
+        repo.add("Ada")
         repo.select(1)
         assertTrue(repo.select(1) is AccountRepository.SelectOutcome.AlreadySelected)
     }
 
     @Test
     fun `a cold start with nothing stored is Not Connected`() = runTest {
-        repo.add("A")
+        repo.add("Ada")
         repo.load()
         assertEquals(AccountStatus.NOT_CONNECTED, repo.find(1)?.status)
     }
@@ -97,7 +97,7 @@ class AccountRepositoryTest {
     @Test
     fun `a stored jar from a previous launch is not presented as a live login`() = runTest {
         // Simulate having logged in during an earlier run, with one cookie in the jar.
-        repo.add("A")
+        repo.add("Ada")
         repo.select(1)
         isolation.live["sid"] = "abc"
         repo.applyProbe(
@@ -156,8 +156,8 @@ class AccountRepositoryTest {
 
     @Test
     fun `capturing for an inactive slot cannot corrupt the active jar`() = runTest {
-        repo.add("A")
-        repo.add("B")
+        repo.add("Ada")
+        repo.add("Ben")
         repo.select(1)
         isolation.live["sid"] = "one"
         // The fake throws if the binding is wrong, which is the invariant this protects.
@@ -167,8 +167,8 @@ class AccountRepositoryTest {
 
     @Test
     fun `logout clears the jar for that slot only`() = runTest {
-        repo.add("A")
-        repo.add("B")
+        repo.add("Ada")
+        repo.add("Ben")
         repo.select(1)
         isolation.live["sid"] = "one"
         repo.refreshJar(1)
@@ -186,8 +186,8 @@ class AccountRepositoryTest {
 
     @Test
     fun `removing the selected slot leaves no selection rather than switching behind the user`() = runTest {
-        repo.add("A")
-        repo.add("B")
+        repo.add("Ada")
+        repo.add("Ben")
         repo.select(1)
         repo.select(2)
 
@@ -199,8 +199,8 @@ class AccountRepositoryTest {
 
     @Test
     fun `removing an unselected slot keeps the selection untouched`() = runTest {
-        repo.add("A")
-        repo.add("B")
+        repo.add("Ada")
+        repo.add("Ben")
         repo.select(2)
         val result = repo.remove(1)
         assertTrue(result is AccountRepository.RemoveResult.Removed)
@@ -209,7 +209,7 @@ class AccountRepositoryTest {
 
     @Test
     fun `removal also destroys the slot's stored session`() = runTest {
-        repo.add("A")
+        repo.add("Ada")
         repo.select(1)
         isolation.live["sid"] = "abc"
         repo.refreshJar(1)
@@ -220,7 +220,7 @@ class AccountRepositoryTest {
 
     @Test
     fun `status only changes through the state machine`() = runTest {
-        repo.add("A")
+        repo.add("Ada")
         repo.select(1)
         // A page finishing must not mark the account connected.
         val transition = repo.dispatch(1, SessionStateMachine.SessionEvent.LoadFinished)
@@ -237,7 +237,7 @@ class AccountRepositoryTest {
 
     @Test
     fun `a 401 for a connected slot becomes Session Expired and asks for reauth`() = runTest {
-        repo.add("A")
+        repo.add("Ada")
         repo.select(1)
         repo.dispatch(1, SessionStateMachine.SessionEvent.ProbeAuthenticated("me@corp", 1L))
         val transition = repo.dispatch(
@@ -250,7 +250,7 @@ class AccountRepositoryTest {
 
     @Test
     fun `rate limiting is recorded separately from losing a session`() = runTest {
-        repo.add("A")
+        repo.add("Ada")
         repo.select(1)
         repo.dispatch(1, SessionStateMachine.SessionEvent.ProbeAuthenticated(null, 1L))
         isolation.live["sid"] = "abc"
@@ -283,7 +283,7 @@ class AccountRepositoryTest {
 
     @Test
     fun `an empty hint clears the label while an invalid one is ignored`() = runTest {
-        repo.add("A")
+        repo.add("Ada")
         repo.setEmailHint(1, "me@corp.example")
         repo.setEmailHint(1, "no-at-sign")
         assertEquals("me@corp.example", repo.find(1)?.emailHint)
@@ -301,7 +301,7 @@ class AccountRepositoryTest {
 
     @Test
     fun `the ttl is enforced by the app because cookie attributes are not observable`() = runTest {
-        repo.add("A")
+        repo.add("Ada")
         repo.select(1)
         isolation.live["sid"] = "abc"
         repo.applyProbe(

@@ -45,6 +45,9 @@ object AppLog {
     private val patterns: List<Pair<Regex, String>> = listOf(
         // Set-Cookie / Cookie headers and anything cookie-shaped.
         Regex("""(?i)(set-cookie|cookie)\s*[:=]\s*[^\r\n]+""") to "$1=<redacted>",
+        // A header whose value is "<scheme> <secret>": the generic rule below matches
+        // "Authorization: Bearer" and stops there, which would leave the token itself in the log.
+        Regex("""(?i)(authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|token)?\s*[A-Za-z0-9\-._~+/]{4,}""") to "$1=<redacted>",
         // Bearer / basic auth and long opaque tokens.
         Regex("""(?i)(bearer|basic|token|api[-_ ]?key|authorization|session|sid)\s*[:=]\s*[A-Za-z0-9\-._~+/]{6,}""") to "$1=<redacted>",
         // JWTs.

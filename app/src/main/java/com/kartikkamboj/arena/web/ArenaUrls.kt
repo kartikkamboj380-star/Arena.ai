@@ -42,6 +42,11 @@ object ArenaUrls {
         "oauth2.googleapis.com",
     )
 
+    /** Bundled build output and platform endpoints: part of the site, never part of a history. */
+    private val ASSET_MARKERS = listOf(
+        "/_next/", "/_vercel/", "/api/", "/assets/", "/static/", "/cdn-cgi/", "/.well-known/",
+    )
+
     /** Paths that are site chrome rather than a conversation or ranking. */
     val NON_CONTENT_PREFIXES = listOf(
         "/leaderboard", "/blog", "/terms", "/privacy", "/agent", "/cookies",
@@ -76,9 +81,17 @@ object ArenaUrls {
         }
         if (value.startsWith("/")) return "$SCHEME://$HOST$value"
         if (value.startsWith("#") || value.startsWith("?")) return base.trimEnd('/') + value
-        // "history/" or "?x=1" style relative links: anchor them at the site root.
+        // "history/" or "?x=1" style relative links: anchor them at the site root. An href that
+        // already spells the host out ("arena.ai/x") loses that prefix instead of being appended to
+        // it, so a page can never produce a path that merely contains the arena name.
         val parsedBase = ParsedUrl.of(base) ?: return null
-        return if (parsedBase.hasArenaHost) "$SCHEME://$HOST/${value.trimStart('.', '/')}" else null
+        if (!parsedBase.hasArenaHost) return null
+        val tail = when {
+            value.startsWith("$HOST/") -> value.removePrefix("$HOST/")
+            value.startsWith("$HOST_WWW/") -> value.removePrefix("$HOST_WWW/")
+            else -> value.trimStart('.', '/')
+        }
+        return "$SCHEME://$HOST/$tail"
     }
 
     fun isContentPath(url: String?): Boolean {
@@ -86,6 +99,11 @@ object ArenaUrls {
         if (!parsed.isHttps || !parsed.hasArenaHost) return false
         val path = parsed.path
         if (path.isBlank() || path == "/") return false
+        // Bundled assets and platform endpoints are part of the site, never of somebody's history.
+        if (ASSET_MARKERS.any { path.startsWith(it) }) return false
+        // A final segment carrying a dot is a file (favicon.ico, chunk-2f1a.js); Arena thread ids
+        // have no extension, so treating files as content would record asset noise as "chats".
+        if (path.substringAfterLast('/').contains('.')) return false
         return NON_CONTENT_PREFIXES.none { path == it || path.startsWith("$it/") }
     }
 }

@@ -36,7 +36,10 @@ object ErrorMapper {
         ERROR_CONNECT, ERROR_IO -> {
             // A "timed out" description from the network stack is the only timeout signal WebView
             // exposes here, so sniff it instead of pretending to know more.
-            if (description.orEmpty().contains("timeout", ignoreCase = true)) {
+            // Chronet writes "read timed out" where java.net writes "timeout"; both are the same
+            // event, and sniffing the wording beats guessing that a bare code means a slow server.
+            val text = description.orEmpty().lowercase()
+            if (text.contains("timeout") || text.contains("timed out")) {
                 ErrorKind.TIMEOUT
             } else {
                 ErrorKind.SERVER
@@ -64,8 +67,13 @@ object ErrorMapper {
         is UnknownHostException -> ErrorKind.NO_NETWORK
         is SSLException -> ErrorKind.TLS
         else -> when {
-            error.message.orEmpty().contains("ENETUNREACH", ignoreCase = true) ||
-                error.message.orEmpty().contains("No network", ignoreCase = true) -> ErrorKind.NO_NETWORK
+            val message = error.message.orEmpty().lowercase()
+            // Android's own wording for a radio going away arrives as a plain IllegalStateException,
+            // so the message is the only signal; anything unrecognised stays SERVER rather than being
+            // dressed up as a connectivity problem the user cannot act on.
+            message.contains("enetunreach") || message.contains("econnunreach") ||
+                message.contains("no network") || message.contains("network is no longer available") ||
+                message.contains("unable to resolve host") -> ErrorKind.NO_NETWORK
 
             else -> ErrorKind.SERVER
         }

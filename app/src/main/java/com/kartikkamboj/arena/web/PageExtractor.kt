@@ -49,13 +49,32 @@ object PageExtractor {
     data class Item(val text: String, val href: String)
 
     private val ROW = Regex("^(\\d{1,3})[.)\\s]*(.+)$")
-    private val TRAILING_SCORE = Regex("[\\s,]*(\\d{1,3}(?:\\.\\d+)?)\\s*%?\\s*$")
+    // Arena prints Elo in the thousands ("· OpenAI · 1372") and percentages as "97.3%", so a
+    // four-digit tail must be readable as the number: capping at three digits truncated 1372 to 372
+    // and left the discarded "1" glued onto the vendor label.
+    private val TRAILING_SCORE = Regex("[\\s,]*(\\d{1,6}(?:\\.\\d+)?)\\s*%?\\s*$")
     private val VENDOR_SEPARATOR = "·"
+    /** Short labels that are buttons, not pages — compared exactly, see [isChrome]. */
+    private val CHROME_LABELS = setOf(
+        "log in", "sign in", "sign up", "log out", "sign out", "menu", "close", "copy", "share",
+        "feedback", "privacy", "terms", "help", "more", "dismiss",
+    )
+
     private val IGNORED_WORDS = listOf(
         "view all", "view details", "pareto", "leaderboard trends", "trends", "see more",
         "get more done", "try it now", "start a chat", "log in", "privacy", "terms",
         "first impressions", "read the", "learn more", "subscribe", "follow",
     )
+
+    /**
+     * Whether a piece of page text is chrome rather than content. Whole labels are matched exactly
+     * and phrases are matched as substrings, because a chat legitimately titled "Close the loop"
+     * must survive while a button reading "Close" must not be imported as a conversation.
+     */
+    private fun isChrome(text: String): Boolean {
+        val trimmed = text.trim().lowercase()
+        return trimmed in CHROME_LABELS || IGNORED_WORDS.any { trimmed.contains(it) }
+    }
 
     fun parseItems(raw: String?): Pair<List<Item>, String> {
         val payload = AuthProbe.unwrap(raw)
@@ -84,7 +103,7 @@ object PageExtractor {
             val rank = row.groupValues[1].toIntOrNull() ?: return@forEach
             var remainder = row.groupValues[2].trim()
             if (remainder.length < 3) return@forEach
-            if (IGNORED_WORDS.any { remainder.contains(it, ignoreCase = true) }) return@forEach
+            if (isChrome(remainder)) return@forEach
 
             val score = TRAILING_SCORE.find(remainder)?.groupValues?.get(1)?.toDoubleOrNull()
             if (score != null) {
@@ -102,7 +121,9 @@ object PageExtractor {
                     vendor = parts.drop(1).joinToString(" ")
                 }
             }
-            val name = remainder.trim().trimStart('·', ' ', '-', ':').trimEnd('-', ':', ' ').trim()
+            // The separator is trimmed off both ends: a row whose score was removed can still be left
+            // holding a trailing "·", and that is presentation noise in a stored label.
+            val name = remainder.trim().trimStart('·', ' ', '-', ':').trimEnd('-', ':', ' ', '·').trim()
             if (name.length < 3) return@forEach
             val id = "live:" + slug(name)
             if (byId.containsKey(id)) return@forEach
@@ -126,12 +147,17 @@ object PageExtractor {
         val seen = LinkedHashSet<String>()
         val out = mutableListOf<ExtractedLink>()
         items.forEach { item ->
-            val absolute = ArenaUrls.absolute(item.href.ifBlank { null }, baseUrl) ?: return@forEach
+            // "#" is a placeholder rather than a page: resolving it against the current URL would
+            // file a history row for the page the user is already looking at, and every SPA on the
+            // site uses one for its in-page buttons.
+            val href = item.href.trim()
+            if (href.isEmpty() || href.startsWith("#")) return@forEach
+            val absolute = ArenaUrls.absolute(href, baseUrl) ?: return@forEach
             if (!ArenaUrls.isContentPath(absolute) && absolute != ArenaUrls.CHAT) return@forEach
             if (item.text.length < 3) return@forEach
             // Page chrome is labelled by its text as well as by its path: "/login" is a real path
             // and it is not somebody's conversation.
-            if (IGNORED_WORDS.any { item.text.contains(it, ignoreCase = true) }) return@forEach
+            if (isChrome(item.text)) return@forEach
             if (!seen.add(absolute)) return@forEach
             out += ExtractedLink(title = item.text.take(120), url = absolute)
         }

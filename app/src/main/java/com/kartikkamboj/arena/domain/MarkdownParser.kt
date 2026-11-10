@@ -181,7 +181,10 @@ object MarkdownParser {
             }
             when {
                 text.startsWith("**", i) -> {
-                    toggle(MdStyle.BOLD); i += 2; continue
+                    // Only a marker that can be closed is a marker; see [opensEmphasis].
+                    if (MdStyle.BOLD in active || opensEmphasis(text, i, "**")) toggle(MdStyle.BOLD) else buffer.append("**")
+                    i += 2
+                    continue
                 }
 
                 text.startsWith("`", i) -> {
@@ -193,7 +196,9 @@ object MarkdownParser {
                 }
 
                 text.startsWith("*", i) -> {
-                    toggle(MdStyle.ITALIC); i += 1; continue
+                    if (MdStyle.ITALIC in active || opensEmphasis(text, i, "*")) toggle(MdStyle.ITALIC) else buffer.append('*')
+                    i += 1
+                    continue
                 }
 
                 else -> {
@@ -205,6 +210,23 @@ object MarkdownParser {
         }
         flush()
         return out.ifEmpty { listOf(MdInline(text)) }
+    }
+
+    /**
+     * A `*` run starts emphasis only when the character after it is not whitespace and a matching
+     * closer exists later in the same line. "2 * 3 * 4" is arithmetic: consuming those markers would
+     * silently reflow a formula the user copied, and unclosed emphasis is not emphasis either.
+     */
+    private fun opensEmphasis(text: String, index: Int, marker: String): Boolean {
+        val after = text.getOrNull(index + marker.length) ?: return false
+        if (after.isWhitespace()) return false
+        var probe = index + marker.length
+        while (probe + marker.length <= text.length) {
+            val before = text.getOrNull(probe - 1)
+            if (before != null && !before.isWhitespace() && text.startsWith(marker, probe)) return true
+            probe++
+        }
+        return false
     }
 
     /** Links that cannot be followed from a note (javascript:, data:) lose their target. */

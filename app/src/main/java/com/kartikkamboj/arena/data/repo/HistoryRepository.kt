@@ -61,7 +61,9 @@ class HistoryRepository(
         val now = clock.nowMillis()
         val key = url?.trimEnd('/') ?: "mode:${mode.name}"
         return mutex.withLock {
-            val existing = _threads.value.firstOrNull { it.url?.trimEnd('/') == key && it.slot == slot }
+            // Compared by record key, not by the record's url: a session whose url never settled has
+            // no url to match, and "mode:<name>" is the only identity it has.
+            val existing = _threads.value.firstOrNull { it.recordKey() == key && it.slot == slot }
             val record = if (existing != null) {
                 existing.copy(
                     lastOpenedAtMillis = now,
@@ -133,11 +135,18 @@ class HistoryRepository(
             val next = current.toMutableList()
             usable.forEach { link ->
                 val url = link.url.trimEnd('/')
-                val existing = byUrl[url]?.takeIf { it.slot == slot }
+                // The URL identifies the thread, not the slot: the same chat imported while another
+                // account was on screen is re-attributed rather than duplicated. Two rows for one
+                // conversation is a worse ledger than one row that names the slot which last had it.
+                val existing = byUrl[url]
                 if (existing != null) {
                     val index = next.indexOfFirst { it.id == existing.id }
                     if (index >= 0) {
-                        next[index] = existing.copy(title = link.title, lastOpenedAtMillis = now)
+                        next[index] = existing.copy(
+                            title = link.title,
+                            slot = slot,
+                            lastOpenedAtMillis = now,
+                        )
                         refreshed++
                     }
                 } else {
@@ -166,9 +175,19 @@ class HistoryRepository(
     suspend fun threadsFor(slot: Int): List<ThreadRecord> =
         _threads.value.filter { it.slot == slot }
 
+    /** The dedupe key of a record; see [trackOpen]. */
+    private fun ThreadRecord.recordKey(): String = url?.trimEnd('/') ?: "mode:${mode.name}"
+
     private suspend fun mutate(id: String, transform: (ThreadRecord) -> ThreadRecord) {
         mutex.withLock {
-            _threads.value = _threads.value.map { if (it.id == id) transform(it) else it }
+            // Re-sorted, not merely replaced: "pinned entries come first" has to hold the moment a
+            // pin is set, otherwise the row only moves the next time something is opened.
+            _threads.value = _threads.value
+                .map { if (it.id == id) transform(it) else it }
+                .sortedWith(
+                    compareByDescending<ThreadRecord> { it.pinned }
+                        .thenByDescending { it.lastOpenedAtMillis },
+                )
             persistLocked()
         }
     }

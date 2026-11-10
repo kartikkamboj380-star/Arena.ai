@@ -67,7 +67,11 @@ object NavigationPolicy {
         return when {
             parsed.hasArenaHost -> Decision.LoadInSession(url)
             parsed.hasIdentityHost -> Decision.HandOffToBrowser(url, HandoffReason.IDENTITY_PROVIDER)
-            else -> Decision.Block(BlockReason.OFF_ORIGIN, url)
+            // An off-site https link is not dangerous, it is just not ours: the user's browser has
+            // its own isolated cookie jar and platform TLS handling. Blocking a plain link the user
+            // tapped would be the worse failure, so it leaves the app instead of hijacking the
+            // signed-in view. [BlockReason.OFF_ORIGIN] stays for non-http(s) schemes above.
+            else -> Decision.HandOffToBrowser(url, HandoffReason.EXTERNAL_LINK)
         }
     }
 
