@@ -392,7 +392,11 @@ private fun ProjectCard(
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (isActive) {
-                PrimaryButton(text = "Open in Chat", onClick = onOpenConversation, leadingIcon = Icons.Filled.OpenInNew)
+                PrimaryButton(
+                    text = "Open in Chat",
+                    onClick = onOpenConversation,
+                    leadingIcon = Icons.AutoMirrored.Filled.OpenInNew,
+                )
             } else {
                 GhostButton(text = "Make active", onClick = onSelect)
             }

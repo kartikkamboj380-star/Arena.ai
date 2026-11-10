@@ -58,6 +58,53 @@ class NavigationPolicyTest {
     }
 
     @Test
+    fun `a sign-in in flight keeps the provider inside the slot's jar`() {
+        // This is the login-redirect fix as a rule, not as a story: while the user is signing this
+        // slot in, the provider must load *here*, because a session established in the system browser
+        // lives in the browser's cookie jar and can never be installed into this slot.
+        listOf(
+            "https://accounts.google.com/o/oauth2/v2/auth?client_id=x",
+            "https://www.google.com/account/login",
+        ).forEach { url ->
+            val decision = NavigationPolicy.classify(url, allowIdentityHosts = true)
+            assertTrue("$url should stay in the session", decision is NavigationPolicy.Decision.LoadInSession)
+            assertEquals(url, (decision as NavigationPolicy.Decision.LoadInSession).url)
+        }
+    }
+
+    @Test
+    fun `the sign-in window widens nothing but the provider`() {
+        // Everything else is judged exactly as it would be outside a sign-in: no new origin becomes
+        // loadable, no blocked scheme becomes allowed.
+        val stranger = NavigationPolicy.classify("https://evil.example/callback", allowIdentityHosts = true)
+        assertTrue(stranger is NavigationPolicy.Decision.HandOffToBrowser)
+        assertEquals(
+            NavigationPolicy.HandoffReason.EXTERNAL_LINK,
+            (stranger as NavigationPolicy.Decision.HandOffToBrowser).reason,
+        )
+        assertTrue(
+            "a javascript: url is refused even mid-sign-in",
+            NavigationPolicy.classify("javascript:alert(document.cookie)", allowIdentityHosts = true)
+                is NavigationPolicy.Decision.Block,
+        )
+        assertTrue(
+            "cleartext to a provider is never upgraded into the session",
+            NavigationPolicy.classify("http://accounts.google.com/x", allowIdentityHosts = true)
+                is NavigationPolicy.Decision.Block,
+        )
+        assertTrue(
+            "the arena origin is unaffected by the flag",
+            NavigationPolicy.classify("https://arena.ai/", allowIdentityHosts = true)
+                is NavigationPolicy.Decision.LoadInSession,
+        )
+        // A host that merely looks like a provider is not one.
+        assertTrue(
+            NavigationPolicy.classify("https://accounts.google.com.evil.example/x", allowIdentityHosts = true)
+                is NavigationPolicy.Decision.HandOffToBrowser,
+        )
+    }
+
+    @Test
     fun `other external links leave the app instead of hijacking the session`() {
         val decision = NavigationPolicy.classify("https://github.com/kartikkamboj380-star/Arena.ai")
         assertTrue(decision is NavigationPolicy.Decision.HandOffToBrowser)

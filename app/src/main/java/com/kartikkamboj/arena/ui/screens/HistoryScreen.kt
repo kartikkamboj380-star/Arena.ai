@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -186,34 +187,35 @@ fun HistoryScreen(container: AppContainer, navigator: NavHostController) {
             }
         }
 
-        visible.forEach { record ->
-            item(key = record.id) {
-                ThreadRow(
-                    record = record,
-                    accountLabel = registry.accounts.firstOrNull { it.slot == record.slot }?.shortName
-                        ?: "Slot ${record.slot}",
-                    accountStatus = registry.accounts.firstOrNull { it.slot == record.slot }?.status,
-                    onOpen = {
-                        val url = record.url
-                        if (url != null) {
-                            if (registry.selectedSlot != record.slot) {
-                                container.session.switchTo(record.slot)
-                                container.session.loadUrlInSession(url)
-                            } else {
-                                container.session.loadUrlInSession(url)
-                            }
-                            navigator.navigate(ArenaDestination.CHAT.route) { launchSingleTop = true }
+        // Keyed lazy rows, not one item{} per record: with the history cap at 200 rows, declaring
+        // every row up front defeats the point of a lazy list (and costs composition memory for rows
+        // nobody has scrolled to). See docs/LOW_RAM.md.
+        items(items = visible, key = { it.id }) { record ->
+            ThreadRow(
+                record = record,
+                accountLabel = registry.accounts.firstOrNull { it.slot == record.slot }?.shortName
+                    ?: "Slot ${record.slot}",
+                accountStatus = registry.accounts.firstOrNull { it.slot == record.slot }?.status,
+                onOpen = {
+                    val url = record.url
+                    if (url != null) {
+                        if (registry.selectedSlot != record.slot) {
+                            container.session.switchTo(record.slot)
+                            container.session.loadUrlInSession(url)
                         } else {
-                            container.session.reportProblem(
-                                "This record has no link — it was a mode session. Open the mode from Models.",
-                            )
+                            container.session.loadUrlInSession(url)
                         }
-                    },
-                    onEdit = { editing = record },
-                    onPin = { scope.launch { container.history.togglePin(record.id) } },
-                    onDelete = { scope.launch { container.history.remove(record.id) } },
-                )
-            }
+                        navigator.navigate(ArenaDestination.CHAT.route) { launchSingleTop = true }
+                    } else {
+                        container.session.reportProblem(
+                            "This record has no link — it was a mode session. Open the mode from Models.",
+                        )
+                    }
+                },
+                onEdit = { editing = record },
+                onPin = { scope.launch { container.history.togglePin(record.id) } },
+                onDelete = { scope.launch { container.history.remove(record.id) } },
+            )
         }
     }
 

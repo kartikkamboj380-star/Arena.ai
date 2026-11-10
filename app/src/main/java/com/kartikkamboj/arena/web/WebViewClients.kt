@@ -182,12 +182,16 @@ class ArenaWebChromeClient(
     ): Boolean {
         if (!isUserGesture || view == null) return false
         val hit = runCatching { view.hitTestResult }.getOrNull()
-        val target = hit?.takeIf { it.type == WebView.HIT_TEST_LINK_TYPE }?.extra
+        // HitTestResult exposes exactly two things: a type and, for the anchor types, the url behind
+        // it. Anything else (an image, a phone number, an edit field) has no popup target to follow.
+        val isAnchor = hit?.type == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
+            hit?.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
+        val target = if (isAnchor) hit?.extra else null
         if (target.isNullOrBlank()) {
             listener.onPopupUnresolvable()
             return false
         }
-        val absolute = ArenaUrls.absolute(target, view.url) ?: target
+        val absolute = ArenaUrls.absolute(target, view.url ?: ArenaUrls.CHAT) ?: target
         when (val decision = NavigationPolicy.classify(absolute, listener.shouldAllowIdentityHost())) {
             is NavigationPolicy.Decision.LoadInSession -> view.loadUrl(decision.url)
             is NavigationPolicy.Decision.HandOffToBrowser ->

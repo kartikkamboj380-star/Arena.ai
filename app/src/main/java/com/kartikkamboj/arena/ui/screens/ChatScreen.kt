@@ -446,7 +446,6 @@ private fun SignInPrompt(
     }
 }
 
-@Composable
 /**
  * The project line: which workspace is open, whether Arena's own conversation can be continued from
  * the account on screen, and how much local history belongs to it. Tapping it opens the workspace —
