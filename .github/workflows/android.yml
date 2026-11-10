@@ -129,6 +129,28 @@ jobs:
           GH_PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ github.token }}
 
+      # A failure diagnosis must not outlive the failure. If the newest comment on the PR is a
+      # "CI diagnostics" report and this run is green, post the resolution next to it; a run that
+      # finds nothing stale to resolve posts nothing, so this cannot turn into per-push noise.
+      - name: Resolve a stale failure report
+        if: success() && github.event_name == 'pull_request'
+        run: |
+          set +e
+          last=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments?per_page=100" \
+            --jq '.[-1].body' 2>/dev/null | head -1)
+          if [ "$last" = "### CI diagnostics" ]; then
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -f body="### CI diagnostics: resolved
+
+          Run [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          passed on ${{ github.sha }}: unit tests, assembleDebug, the instrumentation APK and lint are
+          all green, and the debug APK is uploaded as an artifact of that run. The failure report above
+          belongs to an earlier commit; it is kept rather than deleted so the history stays readable." \
+              --jq '.html_url' || echo "resolution comment could not be posted"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Show what was built
         run: |
           set -euo pipefail
