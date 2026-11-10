@@ -154,7 +154,10 @@ by the author of this client**, and no test in this repo signs in to arena.ai au
    surface). 429 responses are read from status codes; `Retry-After` is not observable, so the app
    never shows a reset time.
 6. **Quota is never multiplied.** Five profiles do not mean five times the quota, and the app will not
-   rotate accounts to dodge a limit — `automaticallyRotatesAccounts` is `false` and tested.
+   rotate accounts to dodge a limit — `automaticallyRotatesAccounts` is `false` and tested. When a slot
+   is limited, the card names *this* account, lists only the other slots this app has verified as
+   connected, and leaves the choice to a tap; your project and your unsent draft are untouched by the
+   switch (the draft lives in memory, on purpose — see [docs/LOW_RAM.md](docs/LOW_RAM.md)).
 7. **DOM coupling.** Signed-in detection depends on Arena's current markup (a "Log In" affordance when
    signed out). A redesign can degrade status to "unknown" — the app holds the last status instead of
    guessing, and Reports it as unknown on the diagnostics screen.

@@ -201,6 +201,40 @@ fun ChatScreen(container: AppContainer, navigator: NavHostController) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
+                    // The alternatives are listed as they actually are: only slots this app has
+                    // *verified* as connected for this device are offered, they are named, and choosing
+                    // one is a tap the user makes. Nothing rotates by itself, and no count of remaining
+                    // quota is implied — Arena does not report one to a client like this.
+                    val alternatives = registry.accounts.filter {
+                        it.slot != account.slot && it.status == AccountStatus.CONNECTED
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    if (alternatives.isEmpty()) {
+                        Text(
+                            text = "No other slot on this device is verified as connected right now, so " +
+                                "there is nothing to hand this to. Sign in to another slot, or wait and " +
+                                "retry this one — the project and this draft stay where they are either " +
+                                "way.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = "Verified and available on this device:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            alternatives.forEach { other ->
+                                InfoChip(
+                                    label = other.shortName,
+                                    leadingIcon = Icons.Filled.Person,
+                                    onClick = { container.session.switchTo(other.slot) },
+                                )
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(10.dp))
                     GhostButton(
                         text = "Pick another account",
@@ -550,13 +584,20 @@ private fun ToolAction(icon: ImageVector, label: String, enabled: Boolean, onCli
 
 @Composable
 private fun DraftBar(container: AppContainer, enabled: Boolean, modifier: Modifier = Modifier) {
-    var draft by remember { mutableStateOf("") }
+    // The text is owned by the coordinator, keyed by the active project: leaving the tab, rotating
+    // the device or losing the account mid-thought must not delete a prompt the user has typed.
+    val registry by container.projects.registry.collectAsStateWithLifecycle()
+    val projectKey = registry.activeId
+    var draft by remember(projectKey) { mutableStateOf(container.session.draftFor(projectKey)) }
     var feedback by remember { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
     Column(modifier = modifier) {
         OutlinedTextField(
             value = draft,
-            onValueChange = { draft = it },
+            onValueChange = {
+                draft = it
+                container.session.setDraft(projectKey, it)
+            },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Draft · placed into the page, never sent by this app") },
             minLines = 1,
@@ -567,6 +608,10 @@ private fun DraftBar(container: AppContainer, enabled: Boolean, modifier: Modifi
                 onSend = {
                     if (draft.isNotBlank()) {
                         container.session.insertDraft(draft) { reason ->
+                            if (reason == null) {
+                                container.session.clearDraft(projectKey)
+                                draft = ""
+                            }
                             feedback = when (reason) {
                                 null -> "Placed in Arena's composer — press send on the page."
                                 "no-visible-input" -> "No visible input field on this page."

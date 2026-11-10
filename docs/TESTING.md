@@ -166,7 +166,15 @@ app's settings, installing `ArenaWebViewClient`/`ArenaWebChromeClient` against a
 24. Popup handling: tap a sign-in control that calls `window.open()`. The flow must continue in the
     same view (no second WebView exists), and a popup whose target cannot be resolved must show the
     explanation notice instead of doing nothing.
-25. Project continuity, the whole point of the workspace: open a project, type instructions, add a
+25. Unsent text: type a prompt into the draft bar, leave Chat, switch account slots, come back. The
+    text must still be there (it is held by the session coordinator, keyed by project, not by the
+    composable). Then start a *different* project and confirm its box is empty — one workspace's draft
+    must never appear in another. This path cannot be unit-tested without a WebView, so it is device
+    work; there is no `SessionCoordinator` test in `app/src/test`.
+26. Rate-limit recovery: on a limited slot, the card must list only slots whose status is
+    `Connected` (verified by this app, on this device) and say so when there are none — never a
+    number of remaining requests, never an automatic switch.
+27. Project continuity, the whole point of the workspace: open a project, type instructions, add a
     file, link the current page, then switch to another account slot. The project must still be active
     with the same name, instructions, files and linked conversation; the strip should now say
     *"conversation belongs to Account N"* rather than pretending it moved. Switch back and it must say

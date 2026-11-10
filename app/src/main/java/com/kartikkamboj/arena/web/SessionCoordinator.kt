@@ -104,6 +104,23 @@ class SessionCoordinator(
     private var webView: WebView? = null
     private var boundSlot: Int? = null
     private var signInUntilMillis = 0L
+
+    /**
+     * Half-typed prompts, keyed by project (or by [draftUnfiledKey] when no project is active).
+     *
+     * This lives here rather than in the composable for one reason: a rate limit, an expired session
+     * or a tab switch must not destroy work the user has typed but not sent. Screens recompose and
+     * detach constantly; the coordinator does not. Keyed by project because a prompt written for one
+     * workspace must never silently appear in another.
+     *
+     * It is deliberately never written to disk. The encrypted blob store holds session material under
+     * a retention rule the user can see and revoke; a draft is their prose, and the honest trade is
+     * "survives navigation, rotation and account switching, ends with the process" — not a private
+     * file nobody asked for.
+     */
+    private val drafts = mutableMapOf<String, String>()
+    private val draftUnfiledKey = "<no project>"
+    private val maxDraftChars = 8_000
     private var pendingChooser: ValueCallback<Array<Uri>>? = null
     private var probeToken = 0
 
@@ -1034,6 +1051,20 @@ class SessionCoordinator(
     }
 
     // --- notices ------------------------------------------------------------------------------
+
+    /** The draft belonging to [projectId] — never a shared buffer. */
+    fun draftFor(projectId: String?): String =
+        drafts[projectId ?: draftUnfiledKey].orEmpty()
+
+    fun setDraft(projectId: String?, text: String) {
+        val key = projectId ?: draftUnfiledKey
+        if (text.isEmpty()) drafts.remove(key) else drafts[key] = text.take(maxDraftChars)
+    }
+
+    /** Called once the page has accepted the text: the local copy is no longer the only one. */
+    fun clearDraft(projectId: String?) {
+        drafts.remove(projectId ?: draftUnfiledKey)
+    }
 
     fun consumeNotice() {
         _notice.value = null
