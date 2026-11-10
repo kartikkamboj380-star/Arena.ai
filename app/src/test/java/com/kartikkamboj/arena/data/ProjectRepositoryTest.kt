@@ -171,9 +171,19 @@ class ProjectRepositoryTest {
             titleHint = "One",
             projectId = id,
         )
-        assertEquals(id, projects.threadsOf(id).single().id)
-        assertEquals(1, projects.threadsOf(id).size)
-        assertEquals(record.projectId, id)
+        // threadsOf() returns the history rows filed under the project — asserted against the row's
+        // own id, because comparing a project id to a thread id is the kind of mistake that would
+        // pass in a test with two equally-random UUIDs only by luck.
+        val filed = projects.threadsOf(id)
+        assertEquals(1, filed.size)
+        // Diagnostic messages carry the whole ledger, because "two UUIDs differ" is not a failure
+        // anyone can act on.
+        assertTrue(
+            "ledger=${history.threads.value.map { "${it.id}@${it.projectId}/${it.url}" }} " +
+                "record=${record.id} project=$id",
+            filed.single().id == record.id,
+        )
+        assertEquals(id, filed.single().projectId)
 
         // A row opened with no project on screen stays unfiled, and deleting the project unfiles its
         // rows instead of destroying them.
