@@ -80,7 +80,6 @@ class AppContainer(private val application: Application) {
         isolation = isolation,
         settings = settings,
         clock = clock,
-        scope = scope,
     )
 
     val history: HistoryRepository = HistoryRepository(store = jsonStore, clock = clock)
@@ -117,7 +116,6 @@ class AppContainer(private val application: Application) {
 
     val diagnostics: Diagnostics by lazy {
         Diagnostics(
-            context = application,
             accounts = accounts,
             models = models,
             history = history,

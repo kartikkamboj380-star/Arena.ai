@@ -12,7 +12,6 @@ import com.kartikkamboj.arena.data.store.JsonFileStore
 import com.kartikkamboj.arena.domain.AccountPolicy
 import com.kartikkamboj.arena.domain.SessionStateMachine
 import com.kartikkamboj.arena.domain.SessionStateMachine.Transition
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +31,6 @@ class AccountRepository(
     private val isolation: SessionIsolation,
     private val settings: SettingsSource,
     private val clock: Clock,
-    @Suppress("unused") private val scope: CoroutineScope,
 ) {
 
     private val mutex = Mutex()

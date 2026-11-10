@@ -1,6 +1,5 @@
 package com.kartikkamboj.arena.di
 
-import android.content.Context
 import com.kartikkamboj.arena.BuildConfig
 import com.kartikkamboj.arena.core.AppLog
 import com.kartikkamboj.arena.core.Clock
@@ -28,7 +27,6 @@ data class DiagnosticsReport(val generatedAtMillis: Long, val lines: List<Diagno
  * ever read into a report — the jar is summarised by entry count only.
  */
 class Diagnostics(
-    private val context: Context,
     private val accounts: AccountRepository,
     private val models: ModelRepository,
     private val history: HistoryRepository,

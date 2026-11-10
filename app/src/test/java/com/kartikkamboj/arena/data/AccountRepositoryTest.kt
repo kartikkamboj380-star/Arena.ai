@@ -10,8 +10,6 @@ import com.kartikkamboj.arena.data.testJsonStore
 import com.kartikkamboj.arena.domain.AccountPolicy
 import com.kartikkamboj.arena.domain.SessionStateMachine
 import java.io.File
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -45,7 +43,6 @@ class AccountRepositoryTest {
         isolation = isolation,
         settings = settings,
         clock = clock,
-        scope = CoroutineScope(Dispatchers.Unconfined),
     )
 
     @Before
