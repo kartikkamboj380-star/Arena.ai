@@ -143,7 +143,13 @@ def main(argv: list[str]) -> int:
         if code != 0:
             # Always include the tail. Pattern matching is a convenience, not a guarantee, and a
             # report that says "nothing matched" is not actionable.
-            tail = [line.rstrip() for line in lines if line.strip()][-90:]
+            # A Gradle stack trace is noise: what matters is the task that failed and the compiler
+            # lines above it, both of which are already parsed out or kept here.
+            tail = [
+                line.rstrip()
+                for line in lines
+                if line.strip() and not line.lstrip().startswith(("at ", "Caused by: org.gradle", "\t"))
+            ][-70:]
             parts += ["", "<details><summary>last lines of the Gradle output</summary>", "", "```"]
             parts += [line[:300] for line in tail]
             parts += ["```", "", "</details>"]

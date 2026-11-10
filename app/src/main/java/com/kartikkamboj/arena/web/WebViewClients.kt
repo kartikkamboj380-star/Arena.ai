@@ -111,9 +111,11 @@ class ArenaWebViewClient(
         )
     }
 
-    override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.webkit.SslError?) {
+    override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
         // Never proceed. A cancelled handler leaves the page unloaded and the user sees why.
-        AppLog.w("slot $slot refused a broken TLS certificate: ${error?.primaryError}")
+        // SslError lives in android.net.http, and its primary error is an int constant; the int is
+        // translated here rather than passed on, so no layer below has to know that class at all.
+        AppLog.w("slot $slot refused a broken TLS certificate (primary error ${error?.primaryError})")
         listener.onSslError(ParsedUrl.of(error?.url)?.host)
         handler?.cancel()
     }
