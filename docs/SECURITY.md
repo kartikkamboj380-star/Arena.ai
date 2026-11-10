@@ -57,10 +57,20 @@ the boundary between the site's origin and the Android platform.
   `DownloadManager` into `getExternalFilesDir(null)` with a notification, and the file is opened by
   whatever the user chooses, not by this app.
 - Multi-window is **not** enabled (`setSupportMultipleWindows` is never called), so `window.open()`
-  cannot create a second frame outside the policy: the URL lands in the slot's own view, which the
-  policy already gates. `ArenaWebChromeClient.onCreateWindow` exists anyway as a defence in depth — it
-  honours only user gestures, gives the transport a throwaway stub whose sole job is to read the
-  target URL, route it (in-session / hand-off / block) and destroy itself outside its own callback.
+  cannot create a second frame outside the policy. `ArenaWebChromeClient.onCreateWindow` resolves the
+  link the gesture hit (`WebView.HitTestResult.SRC_ANCHOR_TYPE` → `getExtra()`) and follows it *in the
+  slot's own view*, which the policy already gates; if the target cannot be read, the user is told
+  rather than left with a dead button. No second `WebView` is ever constructed — not a stub, not a
+  hidden one. That is both the security answer (one view, one policy, one jar) and the low-RAM answer
+  (a second renderer is the most expensive object in this app).
+- **Third-party cookies are enabled for the session `WebView` only**
+  (`CookieManager.setAcceptThirdPartyCookies(view, true)`). This is required for an identity provider's
+  redirect chain to work in-app; without it a sign-in silently returns the user anonymous, which is
+  the bug this client used to have. It is scoped to this view — the global default is untouched — and it
+  does not weaken slot isolation: cookies still live in the shared jar that is captured, encrypted and
+  swapped per slot, so a third-party cookie set during Account 2's sign-in is stored *as Account 2's*
+  material and is gone when the jar is cleared. The page still cannot reach the app (no
+  `addJavascriptInterface`), and no third-party *navigation* is allowed outside the sign-in window.
 - `onShowFileChooser` only ever satisfies the request with `content://` URIs the user picked through
   `ActivityResultContracts.OpenMultipleDocuments`; no file path is exposed to the page.
 - Geolocation is refused (`onGeolocationPermissionsShowPrompt(origin, false, false)`), every

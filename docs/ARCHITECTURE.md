@@ -9,14 +9,15 @@ com.kartikkamboj.arena
 ├── data/
 │   ├── model/                ArenaAccount, AccountStatus, SessionState, AuthProbeResult,
 │   │                         CookieEntry/Snapshot, ArenaMode, ThreadRecord, ModelEntry/Catalog,
+│   │                         Project/ProjectFile/ProjectRegistry/ProjectContext,
 │   │                         ErrorKind/AppError  — all @Serializable, no Android imports
 │   ├── prefs/                SettingsRepository (+ the SettingsSource read interface)
 │   ├── secure/               BlobCipher (Keystore AES/GCM, software fallback), EncryptedBlobStore
 │   ├── store/                JsonFileStore — temp-file+rename JSON for non-secret state
 │   └── repo/                 AccountRepository, HistoryRepository, ModelRepository,
-│                             SessionIsolation (interface + capability types)
-├── domain/                   SessionStateMachine, AccountPolicy, CookieJarCodec, ErrorMapper,
-│                             MarkdownParser     ← pure Kotlin, this is where the rules live
+│                             ProjectRepository, SessionIsolation (interface + capability types)
+├── domain/                   SessionStateMachine, AccountPolicy, ProjectPolicy, CookieJarCodec,
+│                             ErrorMapper, MarkdownParser   ← pure Kotlin, this is where the rules live
 ├── web/                      ArenaUrls, ParsedUrl, NavigationPolicy, AuthProbe, PageExtractor,
 │                             RateLimitMonitor, WebViewSessionIsolation, WebViewClients,
 │                             SessionCoordinator, ComposerScript
@@ -59,6 +60,29 @@ State lives in app-scope stores in `AppContainer`, exposed as `StateFlow` and co
 `DisposableEffect`-shaped: the host container is attached and detached, and nothing in the UI layer
 calls `destroy()` — leaving the Chat tab must not end the session. Destruction
 happens in `MainActivity.onDestroy()` → `session.shutdown()`.
+
+## 2b. Projects, not sessions, are the unit of continuity
+
+`domain/ProjectPolicy` + `data/repo/ProjectRepository` sit *above* `AccountRepository` and
+`HistoryRepository` on purpose. A project owns: its id and name, standing instructions, a file index,
+the pinned model, the local thread rows filed under it, and the pointer to the Arena conversation it
+continues — including **which slot that conversation was seen with**, which is the only way to answer
+"can this be reopened from here?" without guessing.
+
+The rules that make the promise real:
+
+- `create()` is the only way a project exists. Nothing in the app — not a login, not a first launch,
+  not a deep link — creates one implicitly, and `ProjectPolicy.create` returns `Duplicate` rather
+  than a second same-named project.
+- An account switch calls `onAccountChanged(slot)`, which reaches
+  `ProjectPolicy.annotateAccount`: same id, name, instructions, files, model, linked conversation and
+  owning slot; only `accountSlot` (and the "last touched" stamp) move.
+- `ProjectContext` (`CONTINUES` / `OTHER_ACCOUNT` / `LOCAL_ONLY`) is the boundary between *this app
+  kept your work* and *the service will carry it*. Arena publishes no API to move a thread between
+  accounts, so `OTHER_ACCOUNT` is rendered as a sentence about the other account, not as a button that
+  would fail.
+- Deleting a project unfiles its history rows (`HistoryRepository.unfileProject`) instead of deleting
+  them: the ledger is the user's, the project was just a folder.
 
 ## 3. One WebView, five slots
 

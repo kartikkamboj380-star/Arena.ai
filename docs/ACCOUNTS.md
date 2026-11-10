@@ -71,6 +71,22 @@ outcome — including `NothingStored`, which is what makes capture-on-cold-start
 double in `app/src/test/.../data/TestDoubles.kt` *enforces* that binding rule (`check(active == slot)`)
 so a regression that crosses jars fails a test rather than shipping quietly.
 
+## 2b. Accounts do not own projects
+
+Nothing in this document is a reason to start a new piece of work. The project workspace
+(`ProjectPolicy` / `ProjectRepository`, see [ARCHITECTURE.md](ARCHITECTURE.md) §2b) sits above the slot
+machinery: switching slots annotates the active project with "this account touched it last" and changes
+no other field — not the id, not the name, not the instructions, not the file list, not the pinned
+model, not the linked Arena conversation, and not the local history rows filed under it. A project is
+never created by a switch, never selected by one, and never deleted by a logout.
+
+What account switching *does* change is reachability: an Arena thread belongs to the account that
+created it, so after a switch the app says *"this conversation belongs to Account 2"* instead of
+opening a page that would render empty. Arena publishes no API to move or import a conversation, so
+the app does not offer a button that would fail. That distinction — local context always preserved,
+remote context only where the service allows it — is the honest core of the feature, and both halves
+are asserted in `ProjectPolicyTest` / `ProjectRepositoryTest`.
+
 ## 3. What switching never does
 
 - **Never merges cookies.** Two slots may hold a cookie with the same *name* (every session cookie

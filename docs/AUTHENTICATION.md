@@ -32,12 +32,31 @@ their real credentials, and the app keeps the resulting session separate per slo
    the page. The app stores nothing about the credentials; the session cookie stays in the platform
    cookie jar, which the app snapshots into an encrypted per-slot blob (see
    [ACCOUNTS.md](ACCOUNTS.md)).
-2. **Hand-off to the system browser (Google sign-in).** Google's OAuth does not permit
-   authentication inside embedded WebView flows and rejects them (the site's own logs would show
-   `disallowed_useragent`). Rather than spoof a desktop browser, the app detects
-   `accounts.google.com` / `oauth2.googleapis.com` / `www.google.com` navigations and opens them with
-   Custom Tabs, then tells the user to finish in the browser and return.
-   `NavigationPolicy.handoffExplanation()` is the copy for exactly that banner.
+2. **Sign-in keeps the provider inside the slot's jar.** Two defects used to make sign-in land back on
+   the logged-out homepage, and both are now fixed in code rather than papered over in copy:
+
+   - The session `WebView` never opted into third-party cookies, so the cross-site state the provider's
+     redirect chain carries was dropped. `ensureView()` now calls
+     `CookieManager.setAcceptThirdPartyCookies(view, true)` — for this view only, never the global
+     default, and still isolated per slot because the jar is captured and swapped around it.
+   - `accounts.google.com` was classified as `HandOffToBrowser` unconditionally. A browser session
+     lives in the browser's cookie jar, so handing a sign-in off *during* a sign-in structurally
+     guaranteed the app could never observe success. While a sign-in is in flight
+     (`SessionCoordinator.beginSignIn`, a 5-minute window that closes itself the moment a verdict
+     arrives), `NavigationPolicy.classify(url, allowIdentityHosts = true)` loads the provider in-app
+     instead. Outside that window, ordinary navigation leaves the arena origin for the browser exactly
+     as before — the flag widens nothing else, which is what
+     `NavigationPolicyTest."the sign-in window widens nothing but the provider"` pins down.
+
+   If the provider still refuses the embedded view (`disallowed_useragent`), the fallback is the
+   browser — Custom Tabs, plus `NavigationPolicy.handoffExplanation()` as the banner copy — and the
+   banner says outright that the browser's cookies cannot be imported into this slot. Spoofing a
+   desktop user agent to defeat the refusal is not implemented; see the rejected list below.
+
+   On a verified success the jar is captured for the slot immediately and the view is returned to the
+   app's entry point, so a completed login never leaves the user staring at a marketing page. Nothing
+   in this flow marks an account connected before the probe says so: a tap on *Log in* is not a
+   session.
 3. **Nothing else.** No device-code flow (Arena does not publish one), no password grant (it does
    not exist), no cookie theft from Chrome, no reading of another app's token, no scraping of
    undocumented private endpoints.
@@ -111,6 +130,16 @@ out, which some people want when they sign out of one of five slots by accident.
 
 There is no "log out of all slots" shortcut that skips this sequence; `wipeAll()` does the same thing
 for every slot and is what Settings → *Clear local data* calls.
+
+## 5b. Popups
+
+`window.open()` is how a lot of sign-in buttons are wired. The app keeps exactly one `WebView` per
+device, so `onCreateWindow` does not build a second one — not even a throwaway stub. It resolves the
+link the gesture hit (`WebView.HitTestResult.SRC_ANCHOR_TYPE` → `getExtra()`), runs it through the
+same `NavigationPolicy`, and follows it **in the session view**, which is also what makes its cookies
+land in this slot's jar. A target that policy will not load goes to the browser. A target that cannot
+be read at all is reported to the user instead of being silently swallowed, because a dead button is
+the failure mode people blame on the app.
 
 ## 6. If you want to test it yourself
 

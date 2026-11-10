@@ -28,9 +28,10 @@ If a documented Arena API ever appears, `web/` is the seam that swaps out; the d
 | --- | --- |
 | [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | which sign-in methods are supported, which were rejected and why, expiry/re-auth |
 | [docs/ACCOUNTS.md](docs/ACCOUNTS.md) | five slots, temporal isolation, what the platform cannot do, residue it cannot remove |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | package map, why there are no ViewModels, data flow for one prompt |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | package map, why there are no ViewModels, data flow for one prompt, why projects own continuity instead of accounts |
 | [docs/SECURITY.md](docs/SECURITY.md) | HTTPS-only, Keystore, redaction, the origin boundary, known limits |
-| [docs/TESTING.md](docs/TESTING.md) | 172 unit tests, what CI runs, and the device checklist CI deliberately does not run |
+| [docs/TESTING.md](docs/TESTING.md) | 199 unit tests, what CI runs, and the device checklist CI deliberately does not run |
+| [docs/LOW_RAM.md](docs/LOW_RAM.md) | the 2 GB design: one WebView, temporal isolation, every cap, what memory pressure releases, and what is deliberately *not* done |
 
 ## Screens
 
@@ -39,6 +40,16 @@ Direct, Agent, WebDev — the site's real selector), selected-account chip, sele
 connection state, progress, error banners, scroll-to-bottom, stop-loading, copy-selection, stop-and-
 reload, a draft bar that can place text into the page's composer without ever submitting it,
 pull-to-refresh, keyboard-aware layout, and an import button for the thread you are looking at.
+
+**Projects** — the workspace layer: a named project ("Android game development", "Q3 report") that
+holds the standing instructions, the file index, the model you pinned, the local thread rows filed
+under it, and the pointer back to the Arena conversation it continues. Switching account slots never
+starts a new project, never resets one, and never files your work under the new account — the only
+thing a switch may change is an annotation, and that rule is asserted in
+[tests](app/src/test/java/com/kartikkamboj/arena/domain/ProjectPolicyTest.kt). Where the remote
+conversation is reachable from the account on screen, the strip says *"continues here"*; where it is
+not, it says *"conversation belongs to Account 2"*, because Arena has no API to move a thread between
+accounts and the app will not pretend otherwise.
 
 **Models** — the catalog the app *observed*, never a hardcoded list: names and vendors read from the
 live leaderboard page plus rows you pinned yourself, each with an availability state
@@ -104,12 +115,17 @@ Releases page.
 ## Status of this branch
 
 The repository was greenfield apart from a one-line README. Current state: full Kotlin source (main +
-Compose UI), 172 JVM unit tests, one instrumentation test class, resources, Gradle wrapper and CI.
+Compose UI), 199 JVM unit tests in 12 files (17 test classes), one instrumentation test class, resources, Gradle wrapper and CI.
 **Compile-and-test verification happens in CI**: the sandbox this was written in has no JDK or Android
 SDK, and the required hosts (`dl.google.com`, `services.gradle.org`, `repo.maven.apache.org`) are not
 reachable from it, so nothing here was compiled locally. Whatever CI says is the real answer, and if a
 check fails it gets fixed rather than papered over — see the latest run:
 [![Android CI](https://github.com/kartikkamboj380-star/Arena.ai/actions/workflows/android.yml/badge.svg)](https://github.com/kartikkamboj380-star/Arena.ai/actions/workflows/android.yml)
+
+The interface is deliberately not a blue-gradient AI template: obsidian and graphite surfaces, one
+emerald accent for what the app is doing, warm amber for what needs you, monospace micro-labels,
+1 dp hairlines, no blurred ambient layer and no gradient fills — each of which was also a per-frame
+render cost. See [docs/LOW_RAM.md](docs/LOW_RAM.md).
 
 On-device behaviour (auth, five live sessions, rate limits, WebView edge cases) requires a phone and a
 real Arena account. The checklist is [docs/TESTING.md](docs/TESTING.md) §4. **It has not been executed
@@ -123,8 +139,14 @@ by the author of this client**, and no test in this repo signs in to arena.ai au
    profile (`WebViewCompat.getProfile` is read-only; `MULTI_PROFILE` requires opt-in multi-process), so
    isolation is **temporal**: one slot owns the shared cookie jar at a time, with an encrypted snapshot
    swap. Details, and the residue it cannot remove: [docs/ACCOUNTS.md](docs/ACCOUNTS.md) §2 and §4.
-3. **Google sign-in leaves the app.** Google blocks embedded-WebView OAuth; this app hands off to your
-   browser instead of spoofing a user agent. Arena's e-mail flow works inside the app.
+3. **Google sign-in may still leave the app.** While a sign-in is in flight the identity provider is
+   kept *inside* the slot's WebView (third-party cookies are enabled for that view, which is what the
+   redirect chain needs), because a session created in the system browser belongs to the browser and
+   can never be installed into this slot. If the provider refuses an embedded view anyway, the app
+   hands off to your browser and says plainly that the result cannot come back. There is no user-agent
+   spoofing. **This is the fix for "sign in redirects to the homepage"; it is reasoned from the code
+   and the platform's rules, and it has not been verified on a device** — see
+   [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) §2.
 4. **Model selection is advisory.** The app can record and display your choice; only the site's own
    composer can apply it. There is no "the app switched model for you", on purpose.
 5. **Session expiry is approximated.** `CookieManager` does not expose `Expires`/`Max-Age`, so expiry is
