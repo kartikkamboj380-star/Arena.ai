@@ -153,7 +153,8 @@ private fun annotated(parts: List<MdInline>, base: TextStyle): AnnotatedString =
             append(part.text)
             pop()
             val link = part.link
-            if (isLink && link != null) {
+            // link is only ever populated for a LINK span, so null is the whole test.
+            if (link != null) {
                 append("  ")
                 pushStyle(
                     SpanStyle(

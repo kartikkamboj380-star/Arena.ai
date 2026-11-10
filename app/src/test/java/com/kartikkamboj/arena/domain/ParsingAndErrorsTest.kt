@@ -103,7 +103,7 @@ class MarkdownParserTest {
 
     @Test
     fun `very long input is clipped rather than parsed forever`() {
-        val huge = ("word ".repeat(2_000) + "\n\n") * 60
+        val huge = ("word ".repeat(2_000) + "\n\n").repeat(60)
         val doc = MarkdownParser.parse(huge)
         assertTrue(doc.blocks.size <= MarkdownParser.MAX_LINES)
     }

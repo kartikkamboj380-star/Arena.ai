@@ -19,7 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -123,7 +123,7 @@ fun HistoryScreen(container: AppContainer, navigator: NavHostController) {
                     )
                     GhostButton(
                         text = "Open Arena history",
-                        icon = Icons.Filled.OpenInNew,
+                        icon = Icons.AutoMirrored.Filled.OpenInNew,
                         onClick = {
                             container.session.loadUrlInSession(ArenaUrls.HISTORY)
                             navigator.navigate(ArenaDestination.CHAT.route) { launchSingleTop = true }
@@ -327,7 +327,7 @@ private fun ThreadRow(
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            GhostButton(text = "Open", icon = Icons.Filled.OpenInNew, onClick = onOpen)
+            GhostButton(text = "Open", icon = Icons.AutoMirrored.Filled.OpenInNew, onClick = onOpen)
             GhostButton(text = "Edit", onClick = onEdit)
             GhostButton(text = if (record.pinned) "Unpin" else "Pin", icon = Icons.Filled.PushPin, onClick = onPin)
             Box(modifier = Modifier.weight(1f))

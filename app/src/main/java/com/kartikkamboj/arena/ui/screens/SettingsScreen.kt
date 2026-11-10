@@ -26,7 +26,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Shield
@@ -339,8 +339,8 @@ fun SettingsScreen(container: AppContainer, navigator: NavHostController) {
                 )
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InfoChip(label = "Terms", leadingIcon = Icons.Filled.OpenInNew, onClick = { container.session.handOffTo(ArenaUrls.TERMS) })
-                    InfoChip(label = "Privacy", leadingIcon = Icons.Filled.OpenInNew, onClick = { container.session.handOffTo(ArenaUrls.PRIVACY) })
+                    InfoChip(label = "Terms", leadingIcon = Icons.AutoMirrored.Filled.OpenInNew, onClick = { container.session.handOffTo(ArenaUrls.TERMS) })
+                    InfoChip(label = "Privacy", leadingIcon = Icons.AutoMirrored.Filled.OpenInNew, onClick = { container.session.handOffTo(ArenaUrls.PRIVACY) })
                 }
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
