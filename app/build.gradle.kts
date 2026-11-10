@@ -112,6 +112,9 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 
     androidTestImplementation(libs.androidx.test.junit)
+    // The instrumentation runner named in defaultConfig lives in androidx.test:runner; without it
+    // the APK assembles but connectedDebugAndroidTest cannot start.
+    androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui)

@@ -13,6 +13,7 @@ webkit = "1.12.1"
 browser = "1.8.0"
 junit = "4.13.2"
 androidxTestJunit = "1.2.1"
+androidxTestRunner = "1.6.2"
 espressoCore = "3.6.1"
 
 [libraries]
@@ -38,6 +39,7 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -76,22 +76,38 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-          accept-android-licenses: true
+          accept-android-sdk-licenses: true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: wrapper
-          cache-read-only: false
+          # Read-only: the write path hit a cache-service outage during development, and a warm
+          # cache is a speed-up, never something the build's correctness should depend on.
+          cache-read-only: true
 
       - name: Make the wrapper executable
         run: chmod +x gradlew
 
       - name: Run JVM unit tests
-        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+        run: |
+          set -uo pipefail
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee /tmp/unit.log
+          code=${PIPESTATUS[0]}
+          # Re-emit the diagnostics as check annotations: the artifact log itself is served from a
+          # host a restricted environment may not reach, and a red build nobody can read is unfixable.
+          python3 tools/ci_explain.py /tmp/unit.log "$code" \
+            --test-results app/build/test-results/testDebugUnitTest
+          exit $?
 
       - name: Assemble debug APK, instrumentation APK and lint
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --continue
+        run: |
+          set -uo pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest \
+            :app:lintDebug --continue 2>&1 | tee /tmp/assemble.log
+          code=${PIPESTATUS[0]}
+          python3 tools/ci_explain.py /tmp/assemble.log "$code"
+          exit $?
 
       - name: Show what was built
         run: |
