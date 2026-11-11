@@ -391,7 +391,6 @@ class BrowserEngine(
         runCatching { webView.clearCache(true) }
         AppLog.d("released the HTTP cache at trim level $level")
     }
-    }
 
     fun destroyView() {
         val webView = _view.value ?: return
