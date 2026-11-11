@@ -48,12 +48,17 @@ APK, which is the only guarantee made about them: **they have not been run**, be
 no emulator. They cover the things the JVM cannot see — `android.net.Uri` agreeing with `ParsedUrl` about
 hosts on a real framework, the site's trust list agreeing with the framework's own parse, the persistent
 view being reused and a replaced view being a new instance, Back on a fresh view being refused rather than
-invented, progress not being able to fake a first paint, and the two window rules: a
-`window.open()` request is granted only for a gesture **and** only when the framework supplied a
-transport to hand a view to, and a granted window is the app's own `ArenaWebViewClient` view that leaves
-no state behind when it closes. Those last two need `Message`/`WebViewTransport` and
-`WebView.getWebViewClient()` (exactly the API level this app's `minSdk` starts at), which is why they are
-device tests and not JVM tests.
+invented, progress not being able to fake a first paint, and the window rules: a `window.open()` request
+without a user gesture gets nothing, a gesture whose message carries no usable transport is refused
+instead of returning true with nothing wired (the framework calls that undefined behaviour), a callback
+with no message at all does not crash, the page's own view is never treated as the popup, and the view
+that does get governed is governed by `ArenaWebViewClient`/`ArenaWebChromeClient` — which is the same
+`configure()` call a popup window receives.
+
+What these tests cannot cover, and why: `WebView.WebViewTransport` is an **inner** class of `WebView`
+that only the framework constructs, so a test cannot fabricate the granted path's transport. The granted
+path is therefore pinned by the CI promise step (transport wired, `popup.destroy()` on every teardown,
+`configure(popup)`) and by item 4c below on a device.
 
 ```bash
 ./gradlew :app:connectedDebugAndroidTest              # needs a device or emulator
