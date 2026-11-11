@@ -10,16 +10,29 @@ line in the source or a claim CI checks; nothing here is a promise about intent.
 
 | Target | Result | Code path |
 | --- | --- | --- |
-| `https://arena.ai`, `https://www.arena.ai` | rendered in app | `Decision.LoadInApp` |
-| `http://arena.ai…` | upgraded to https, then rendered | the http branch refuses to display a session page over cleartext |
-| `accounts.google.com`, `accounts.gmail.com`, `oauth2.googleapis.com` | rendered in app, so the site's own sign-in can finish | the small allow-list in `ArenaSite.AUTH_HOSTS` |
+| `https://arena.ai`, `https://www.arena.ai`, **and any `*.arena.ai`** | rendered in app | `Decision.LoadInApp`, via `hostUnder(ArenaSite.SITE_DOMAIN)` |
+| `http://arena.ai…`, `http://auth.arena.ai…` | upgraded to https, then rendered | the http branch refuses to display a session page over cleartext |
+| `accounts.google.com`, `accounts.gmail.com`, `oauth2.googleapis.com` | rendered in app, so the site's own sign-in can finish | the published endpoints, `ArenaSite.AUTH_HOSTS` |
+| anything else under `google.com`, `googleapis.com`, `gmail.com` | rendered **only while the window is already showing a provider page**; otherwise an external link like any other | `fromProviderPage` + `ArenaSite.PROVIDER_DOMAINS` |
 | any other `https` site | opened in a Chrome Custom Tab, with the host named in the notice | `HandoffReason.EXTERNAL_LINK` |
 | any other `http` site | handed to the browser rather than loaded unencrypted here | `HandoffReason.INSECURE_SCHEME` |
 | `mailto:`, `tel:`, `sms:`, `geo:`… | given to the system handler | `HandoffReason.APP_HANDLER` |
 | `javascript:`, `data:`, `file:`, `intent:`, unparseable | refused, with a sentence explaining it | `Decision.Block` |
 
-A lookalike host (`arena.ai.example.com`, `notarena.ai`) is *not* the site: the comparison is on the
-parsed host, never a substring, so a page cannot earn trust by mentioning `arena.ai` in a path or query.
+A lookalike host (`arena.ai.example.com`, `notarena.ai`, `arena.ai.evil.net`) is *not* the site:
+`ParsedUrl.hostUnder` compares the parsed host on a **label boundary** (`h == d || h.endsWith(".d")`),
+never a substring, so nothing about a path, a query or a hyphen can earn trust.
+
+Two consequences are accepted deliberately, and both are load-bearing:
+
+- Subdomains are included because Arena's auth service is one (`auth.arena.ai` answers a gateway error of
+  its own; the entry hosts do not serve sign-in). An exact-host list strands sign-in on the first hop —
+  that was the reported bug — and a session made in the browser it fell back to cannot return.
+- What that trades away is stated plainly: the app trusts whatever DNS for `arena.ai` says, so a hostile
+  subdomain of Arena would be rendered as the app's own content. That is Arena's boundary, not this app's;
+  a browser behaves the same way about cookies scoped to a parent domain. If this app ever gains a reason
+  to care (a second tenant on the domain, say), the fix is an explicit list plus a site-published
+  `assetlinks.json` — not a heuristic on the URL.
 These cases are unit tests, run on every push (`NavigationPolicyTest`).
 
 Nothing is *added* to that list at runtime: there is no remote config, no dynamic allow-list, no way for
@@ -108,8 +121,10 @@ button that clears storage would be a second, blunter logout than the site's own
 in release because they name failure types, and every string passes through `redact()` first:
 cookie/`Set-Cookie` headers, `Authorization`/bearer/basic values, `*token|secret|password|code|otp|session|sid|key*`
 in both quoted JSON and `key=value` shapes, JWT-looking runs, e-mail addresses, then truncated. Load
-failures log the **host**, never the full URL, because a provider redirect URL is exactly where a
-`?code=…` lives. `AppLogTest` asserts a secret in each shape does not survive the funnel — including
+failures log the **host and path**, never the full URL, because a provider redirect URL is exactly where a
+`?code=…` lives — `ArenaSite.forLog` does that truncation at the single place navigations are logged, so a
+query never reaches the redactor to begin with. `AppLogTest` asserts a secret in each shape does not survive
+the funnel — including
 one crafted to defeat a weaker `refresh` pattern. There is no crash handler that uploads a stack trace,
 no analytics, no telemetry endpoint.
 

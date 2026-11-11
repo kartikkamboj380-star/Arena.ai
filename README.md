@@ -70,9 +70,11 @@ so the provider's redirect chain can complete. No user-agent spoofing, no cookie
 automation. If the provider refuses an embedded view, the app says so and offers the browser.
 [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
 
-**Security.** In-app navigation is limited to `arena.ai` and the identity hosts a sign-in must pass
-through; `javascript:`/`data:`/`file:` never reach the view; TLS errors cancel the load with no
-"proceed" button; there is no `addJavascriptInterface` anywhere; log output passes through a redactor.
+**Security.** In-app navigation is limited to the site's own domain family and the identity provider's
+domains — the provider's wider domains only while a sign-in is mid-chain — plus
+`javascript:`/`data:`/`file:` never reach the view; TLS errors cancel the load with no "proceed" button;
+there is no `addJavascriptInterface` anywhere; logged URLs lose their query before anything else does,
+and then pass through a redactor.
 [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Build it — no desktop required
@@ -91,7 +93,7 @@ Details, artifacts, release signing: [docs/BUILD.md](docs/BUILD.md).
 
 | Kind | Count | Status on CI |
 | --- | --- | --- |
-| JVM unit tests (`:app:testDebugUnitTest`) | 53, in 5 files | **executed**, must pass |
+| JVM unit tests (`:app:testDebugUnitTest`) | 68, in 5 files | **executed**, must pass |
 | Instrumentation tests (`app/src/androidTest`) | 6 | **compiled only** — no emulator in CI, never executed |
 | Lint (`:app:lintDebug`) | — | executed, `abortOnError = false`, findings published as an artifact |
 | Manual device checklist (15 items: sign-in, uploads, back, backgrounding, lock-screen during generation, renderer recovery, low memory) | 15 | **not performed** — this repository has no device |

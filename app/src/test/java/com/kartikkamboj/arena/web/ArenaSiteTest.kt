@@ -10,15 +10,15 @@ import org.junit.Test
 class ArenaSiteTest {
 
     @Test
-    fun `only the site's own https origins are trusted`() {
-        assertTrue(ArenaSite.isTrusted("https://arena.ai/"))
-        assertTrue(ArenaSite.isTrusted("https://www.arena.ai/leaderboard"))
-        assertFalse("cleartext is never trusted", ArenaSite.isTrusted("http://arena.ai/"))
-        assertFalse(ArenaSite.isTrusted("https://arena.ai.example.com/"))
-        assertFalse(ArenaSite.isTrusted("https://notarena.ai/"))
-        assertFalse(ArenaSite.isTrusted(null))
-        assertFalse(ArenaSite.isTrusted(""))
-        assertFalse(ArenaSite.isTrusted("arena.ai/leaderboard"))
+    fun `the family rule accepts only https and rejects every shape of lookalike`() {
+        assertTrue(ArenaSite.isSiteFamily("https://arena.ai/"))
+        assertTrue(ArenaSite.isSiteFamily("https://www.arena.ai/leaderboard"))
+        assertFalse("cleartext is never trusted", ArenaSite.isSiteFamily("http://arena.ai/"))
+        assertFalse(ArenaSite.isSiteFamily("https://arena.ai.example.com/"))
+        assertFalse(ArenaSite.isSiteFamily("https://notarena.ai/"))
+        assertFalse(ArenaSite.isSiteFamily(null))
+        assertFalse(ArenaSite.isSiteFamily(""))
+        assertFalse(ArenaSite.isSiteFamily("arena.ai/leaderboard"))
     }
 
     @Test
@@ -97,6 +97,49 @@ class ArenaSiteTest {
     fun `the entry point and the cookie origin are the same site`() {
         assertEquals("https://arena.ai/", ArenaSite.HOME)
         assertEquals("https://arena.ai", ArenaSite.COOKIE_URL)
-        assertTrue(ArenaSite.TRUSTED_HOSTS.containsAll(setOf("arena.ai", "www.arena.ai")))
+        assertEquals("https://arena.ai/", ArenaSite.HOME)
+        assertEquals("arena.ai", ArenaSite.SITE_DOMAIN)
+        assertTrue(ArenaSite.isSiteFamily(ArenaSite.HOME))
+        assertTrue(ArenaSite.isSiteFamily(ArenaSite.COOKIE_URL.replace("https://", "https://www.")))
+    }
+
+    // --- who counts as "the site", and what may be written down about a url -------------------
+
+    @Test
+    fun `the auth subdomain is the site, which is the whole point of the family rule`() {
+        assertTrue("auth lives on a subdomain", ArenaSite.isSiteFamily("https://auth.arena.ai/login"))
+        assertTrue(ArenaSite.isSiteFamily("https://www.arena.ai/battle"))
+        assertTrue(ArenaSite.isSiteFamily("https://arena.ai/"))
+        assertFalse(ArenaSite.isSiteFamily("https://arena.ai.evil.net/"))
+        assertFalse(ArenaSite.isSiteFamily("https://notarena.ai/"))
+        assertFalse("http is not the site, it is a downgrade", ArenaSite.isSiteFamily("http://arena.ai/"))
+        assertFalse(ArenaSite.isSiteFamily("https://.arena.ai/"))
+    }
+
+    @Test
+    fun `the provider is the provider and not the page it links to`() {
+        assertTrue(ArenaSite.isProviderPage("https://accounts.google.com/o/oauth2/v2/auth"))
+        assertTrue(ArenaSite.isProviderPage("https://myaccount.google.com/x"))
+        assertTrue(ArenaSite.isProviderPage("https://oauth2.googleapis.com/device/code"))
+        assertFalse(ArenaSite.isProviderPage("https://accounts.google.com.evil.net/x"))
+        assertFalse(ArenaSite.isProviderPage("https://arena.ai/x"))
+        assertTrue("the published endpoints are a subset of the provider's pages", ArenaSite.isAuthPage("https://accounts.google.com/x"))
+        assertFalse("docs.google.com is a product, not a sign-in screen", ArenaSite.isAuthPage("https://docs.google.com/x"))
+    }
+
+    @Test
+    fun `a url in a log line is a host and a path, never a query`() {
+        val line = ArenaSite.forLog("https://auth.arena.ai/api/auth/callback/google?code=SECRET&state=abc&id_token=eyJhbGci")
+        assertEquals("auth.arena.ai/api/auth/callback/google", line)
+        assertFalse(line.contains("SECRET"))
+        assertFalse(line.contains("code"))
+        assertFalse(line.contains("id_token"))
+    }
+
+    @Test
+    fun `a log line for a bare origin does not end in a slash`() {
+        assertEquals("arena.ai", ArenaSite.forLog("https://arena.ai/"))
+        assertEquals("an unparseable url", ArenaSite.forLog("not a url at all"))
+        assertEquals("an unparseable url", ArenaSite.forLog(null))
     }
 }

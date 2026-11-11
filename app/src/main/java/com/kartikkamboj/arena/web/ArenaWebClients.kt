@@ -33,7 +33,23 @@ class ArenaWebViewClient(private val engine: BrowserEngine) : WebViewClient() {
      */
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url?.toString() ?: return true
-        return when (val decision = NavigationPolicy.classify(url)) {
+        if (!request.isForMainFrame) {
+            // Sub-frame loads are not navigations the user chose, and the platform warns that this
+            // callback fires for them too. Deciding them here would let a frame inside a page move the
+            // whole window's trust context, so they are left to the WebView and its own origin rules.
+            return false
+        }
+        // The one piece of context that changes the answer: whether the window is *already* showing
+        // the identity provider's UI, in which case breaking the chain mid-sign-in is the worse error.
+        val fromProviderPage = ArenaSite.isProviderPage(view.url)
+        val decision = NavigationPolicy.classify(url, fromProviderPage)
+        // Logged as host and path only. An OAuth callback carries `code`, `state` and sometimes an
+        // `id_token` in its query string, and a query never belongs in logcat.
+        AppLog.d(
+            "nav ${ArenaSite.forLog(view.url)} -> ${ArenaSite.forLog(url)} " +
+                "[${NavigationPolicy.logSummary(decision)}]",
+        )
+        return when (decision) {
             is Decision.LoadInApp -> false
 
             is Decision.HandOffToBrowser -> {

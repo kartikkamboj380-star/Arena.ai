@@ -63,7 +63,10 @@ of Android and therefore testable.
 ### `web/NavigationPolicy`, `ArenaSite`, `ParsedUrl`
 
 The security boundary, in three small pure pieces: which origins the app renders, which leave for the
-browser, which are refused outright. `ParsedUrl` exists because `android.net.Uri` is a stub on the JVM,
+browser, which are refused outright. It is deliberately **one bit of context deep** — whether the window is
+already showing the identity provider — because a redirect chain is a sequence, and a stateless per-URL rule
+breaks the chain the moment one hop lands on a host the list did not name. That is what stranded sign-in on
+`auth.arena.ai`; see [AUTHENTICATION.md](AUTHENTICATION.md). `ParsedUrl` exists because `android.net.Uri` is a stub on the JVM,
 and origin rules are the last place where "it compiles" should be mistaken for "it's correct" — so they
 are asserted on every CI run instead. See [SECURITY.md](SECURITY.md).
 

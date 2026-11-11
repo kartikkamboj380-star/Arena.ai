@@ -38,6 +38,12 @@ data class BrowserState(
     val firstPaint: Boolean = false,
     /** Whether the app has already spent its one automatic recovery after a dead renderer. */
     val crashRecovered: Boolean = false,
+    /**
+     * A sign-in leg left this window for the browser, so the flow is now running somewhere the app
+     * cannot see. Nothing can be concluded from that except what the user can decide with it, which is
+     * why the shell offers an acknowledgement rather than guessing an outcome.
+     */
+    val awaitingProviderReturn: Boolean = false,
 ) {
     /**
      * Whether this window is currently showing an identity provider's page rather than the site. The
@@ -97,6 +103,15 @@ sealed interface BrowserEvent {
 
     /** The user has read the failure and wants the page back, even if it is still broken. */
     object DetailDismissed : BrowserEvent
+
+    /**
+     * A provider page was handed to the browser. Deliberately carries nothing: the only fact worth
+     * keeping is that a leg left, and a URL would put an OAuth `code` in state that reaches the screen.
+     */
+    object ProviderHandoff : BrowserEvent
+
+    /** The user said they finished the sign-in in the browser. Clears the flag; asserts nothing else. */
+    object ProviderReturnAck : BrowserEvent
     object RetryRequested : BrowserEvent
     object Backgrounded : BrowserEvent
     object Foregrounded : BrowserEvent
@@ -121,6 +136,8 @@ object BrowserReducer {
 
         is BrowserEvent.LoadStarted -> Reduction(
             state.copy(
+                awaitingProviderReturn = false,
+
                 url = event.url,
                 phase = PagePhase.LOADING,
                 progress = if (state.firstPaint) state.progress else LOADING_START,
@@ -167,6 +184,23 @@ object BrowserReducer {
                 progress = 100,
                 detail = "Your sign-in provider answered this window with HTTP ${event.status}. Providers " +
                     "sometimes refuse to work inside another app, and this app will not pretend otherwise.",
+            ),
+        )
+
+        BrowserEvent.ProviderHandoff -> Reduction(
+            state.copy(awaitingProviderReturn = true),
+        )
+
+        // The acknowledgement is a statement about the platform, never about whether a session exists:
+        // the app cannot read either browser's cookies and does not pretend to.
+        BrowserEvent.ProviderReturnAck -> Reduction(
+            state.copy(awaitingProviderReturn = false),
+            listOf(
+                BrowserEffect.Say(
+                    "Your browser kept the sign-in it finished — this window holds its own copy of the " +
+                        "site's cookies, and Android has no way to copy one into the other. If the " +
+                        "page below still offers Sign in, use the site's own form here.",
+                ),
             ),
         )
 

@@ -148,4 +148,76 @@ class NavigationPolicyTest {
             assertTrue(reason.name, NavigationPolicy.blockExplanation(reason).length > 20)
         }
     }
+
+    // --- the sign-in chain, which is the reason the rules are contextual -----------------------
+
+    @Test
+    fun `the site's own auth subdomain stays in the app`() {
+        // This is the bug this rule exists to prevent: auth lives on auth.arena.ai, and an exact-host
+        // list sent it to a browser tab where its session could never come back.
+        val decision = NavigationPolicy.classify("https://auth.arena.ai/login?redirect=%2F")
+        assertTrue(decision is NavigationPolicy.Decision.LoadInApp)
+    }
+
+    @Test
+    fun `a host that merely contains the domain is not the site`() {
+        for (url in listOf("https://arena.ai.evil.net/x", "https://notarena.ai/x", "https://arena.aievil.net/x")) {
+            val decision = NavigationPolicy.classify(url)
+            assertTrue("expected a hand-off for $url", decision is NavigationPolicy.Decision.HandOffToBrowser)
+        }
+    }
+
+    @Test
+    fun `the callback leg back to the site is loaded in app`() {
+        val decision = NavigationPolicy.classify(
+            "https://auth.arena.ai/api/auth/callback/google?code=secret&state=xyz",
+            fromProviderPage = true,
+        )
+        assertEquals(
+            "https://auth.arena.ai/api/auth/callback/google?code=secret&state=xyz",
+            (decision as NavigationPolicy.Decision.LoadInApp).url,
+        )
+    }
+
+    @Test
+    fun `the provider's other domains continue a chain already in progress and start none`() {
+        val leg = "https://myaccount.google.com/permissions"
+        assertTrue(
+            "a stray google page must not become app content",
+            NavigationPolicy.classify(leg) is NavigationPolicy.Decision.HandOffToBrowser,
+        )
+        assertTrue(
+            "mid-chain it is the provider's own next screen",
+            NavigationPolicy.classify(leg, fromProviderPage = true) is NavigationPolicy.Decision.LoadInApp,
+        )
+    }
+
+    @Test
+    fun `mid-chain does not mean unconditional: someone else's site still leaves`() {
+        val decision = NavigationPolicy.classify("https://medium.com/@arena/notes", fromProviderPage = true)
+        assertTrue(decision is NavigationPolicy.Decision.HandOffToBrowser)
+    }
+
+    @Test
+    fun `a cleartext request for any arena.ai host is upgraded rather than handed off`() {
+        val decision = NavigationPolicy.classify("http://auth.arena.ai/start")
+        assertEquals("https://auth.arena.ai/start", (decision as NavigationPolicy.Decision.LoadInApp).url)
+    }
+
+    @Test
+    fun `the log summary is a rule, not a url`() {
+        assertEquals(
+            "in-app",
+            NavigationPolicy.logSummary(NavigationPolicy.classify(ArenaSite.HOME)),
+        )
+        assertEquals(
+            "hand-off(external_link)",
+            NavigationPolicy.logSummary(NavigationPolicy.classify("https://example.com/x")),
+        )
+        assertEquals(
+            "block(javascript_scheme)",
+            NavigationPolicy.logSummary(NavigationPolicy.classify("javascript:alert(1)")),
+        )
+    }
+
 }

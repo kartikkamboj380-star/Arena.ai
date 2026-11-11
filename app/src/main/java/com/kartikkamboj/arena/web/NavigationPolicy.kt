@@ -4,17 +4,25 @@ package com.kartikkamboj.arena.web
  * Every main-frame navigation the WebView attempts is decided here, before anything renders.
  *
  * The rules implement the trust requirement rather than trusting the page:
- *  * `https://arena.ai` (and `www`) is the only content the app shows as itself;
- *  * the identity-provider pages a sign-in has to pass through may render in this window, so the
- *    site's own cookies survive the redirect — that is the whole login story, and it is the only
- *    thing the app does about authentication;
+ *  * anything the site serves on its own domain family — `arena.ai` and any `*.arena.ai` — is content
+ *    the app shows as itself, which **includes the auth service** (`auth.arena.ai`);
+ *  * Google's sign-in and OAuth endpoints may render in this window, so a redirect chain started on
+ *    the site can complete with the site's own cookies intact;
+ *  * while the window is *already* showing provider UI, the provider's own domains stay in this
+ *    window too, because a chain broken in the middle is a failed sign-in rather than a refusal;
  *  * every other site leaves for the user's browser, where their own session and the platform's TLS
  *    handling apply, instead of being swallowed by a signed-in view;
  *  * `javascript:`, `data:` and `file:` never reach the WebView at all.
  *
+ * The order of the last two bullets is the point of this class. Deciding each leg in isolation is what
+ * strands an OAuth chain: the moment one hop is on a host the list did not anticipate, it opens in a
+ * browser tab, and a session made there cannot be brought back into this window (see
+ * docs/AUTHENTICATION.md). So the decision is *contextual* — [fromProviderPage] carries the one fact
+ * about the previous page that changes the answer — while still never trusting an arbitrary host.
+ *
  * No branch of this class inspects a page's DOM, fills a form, reads a cookie or rewrites a user
- * agent. Where a provider refuses an embedded view, that is reported by [ArenaSite.AUTH_HOSTS]
- * handling plus the load-error state, not worked around.
+ * agent. Where a provider refuses an embedded view, that is reported through the load-error state
+ * (`PagePhase.AUTH_REFUSED`), not worked around.
  */
 object NavigationPolicy {
 
@@ -51,7 +59,11 @@ object NavigationPolicy {
     /** Schemes handled by an installed app rather than by a browser. */
     private val appHandlerSchemes = setOf("mailto", "tel", "sms", "smsto", "geo", "calendar", "whatsapp")
 
-    fun classify(rawUrl: String?): Decision {
+    /**
+     * @param fromProviderPage whether the window is currently showing the provider's own UI, which is
+     *   what allows the rest of that provider's domains to continue in this window.
+     */
+    fun classify(rawUrl: String?, fromProviderPage: Boolean = false): Decision {
         val url = rawUrl?.trim().orEmpty()
         if (url.isEmpty()) return Decision.Block(BlockReason.MALFORMED_URL, url)
 
@@ -77,14 +89,16 @@ object NavigationPolicy {
             scheme == "http" ->
                 // The site is HTTPS-only, so a cleartext request for it is a typo or a stripping
                 // attempt: upgrade rather than downgrade. Anyone else's http is their browser's call.
-                if (parsed.hostIn(ArenaSite.TRUSTED_HOSTS)) {
+                if (parsed.hostUnder(ArenaSite.SITE_DOMAIN)) {
                     Decision.LoadInApp(url.replaceFirst("http://", "https://", ignoreCase = true))
                 } else {
                     Decision.HandOffToBrowser(url, HandoffReason.INSECURE_SCHEME)
                 }
 
             scheme == "https" ->
-                if (parsed.hostIn(ArenaSite.TRUSTED_HOSTS) || parsed.hostIn(ArenaSite.AUTH_HOSTS)) {
+                if (parsed.hostUnder(ArenaSite.SITE_DOMAIN) || parsed.hostIn(ArenaSite.AUTH_HOSTS) ||
+                    (fromProviderPage && ArenaSite.isProviderPage(url))
+                ) {
                     Decision.LoadInApp(url)
                 } else {
                     Decision.HandOffToBrowser(url, HandoffReason.EXTERNAL_LINK)
@@ -101,13 +115,13 @@ object NavigationPolicy {
      * Resolves a page-supplied reference against the page it came from, then applies the same
      * rules. Used for `target="_blank"` targets, where the URL arrives as written in the document.
      */
-    fun classifyReference(reference: String?, baseUrl: String?): Decision {
+    fun classifyReference(reference: String?, baseUrl: String?, fromProviderPage: Boolean = false): Decision {
         val ref = reference?.trim().orEmpty()
         if (ref.isEmpty()) return Decision.Block(BlockReason.MALFORMED_URL, ref)
-        if (ref.startsWith("//")) return classify("https:$ref")
-        if (ref.contains("://")) return classify(ref)
-        val base = ParsedUrl.of(baseUrl) ?: return classify(ref)
-        if (!base.hostIn(ArenaSite.TRUSTED_HOSTS)) {
+        if (ref.startsWith("//")) return classify("https:$ref", fromProviderPage)
+        if (ref.contains("://")) return classify(ref, fromProviderPage)
+        val base = ParsedUrl.of(baseUrl) ?: return classify(ref, fromProviderPage)
+        if (!base.hostUnder(ArenaSite.SITE_DOMAIN)) {
             // A relative link is only meaningful against a page we trust; anything else is treated
             // as the opaque string it is.
             return classify(ref)
@@ -120,7 +134,7 @@ object NavigationPolicy {
                 "$parent/${ref.trimStart('.', '/')}"
             }
         }
-        return classify("https://${base.host}$path")
+        return classify("https://${base.host}$path", fromProviderPage)
     }
 
     /**
@@ -128,9 +142,23 @@ object NavigationPolicy {
      * arena.ai content qualifies; everything else is handed to the caller to open externally. One
      * WebView is a hard rule of this app, so a second window is never created.
      */
-    fun allowsInAppWindow(rawUrl: String?, baseUrl: String? = null): String? {
-        val decision = if (baseUrl == null) classify(rawUrl) else classifyReference(rawUrl, baseUrl)
+    fun allowsInAppWindow(rawUrl: String?, baseUrl: String? = null, fromProviderPage: Boolean = false): String? {
+        val decision = if (baseUrl == null) {
+            classify(rawUrl, fromProviderPage)
+        } else {
+            classifyReference(rawUrl, baseUrl, fromProviderPage)
+        }
         return (decision as? Decision.LoadInApp)?.url
+    }
+
+    /**
+     * What a decision was, in the form that goes to a log: never a URL with a query in it, because an
+     * OAuth callback carries `code`/`state`/`id_token` there. Callers pass the host and path separately.
+     */
+    fun logSummary(decision: Decision): String = when (decision) {
+        is Decision.LoadInApp -> "in-app"
+        is Decision.HandOffToBrowser -> "hand-off(${decision.reason.name.lowercase()})"
+        is Decision.Block -> "block(${decision.reason.name.lowercase()})"
     }
 
     /** Wording shown to the user when something leaves the app, so a hand-off is never a mystery. */

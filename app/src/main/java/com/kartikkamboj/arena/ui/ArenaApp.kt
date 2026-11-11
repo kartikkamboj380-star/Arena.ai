@@ -118,9 +118,17 @@ fun ArenaApp(container: AppContainer) {
         }
 
         if (state.onProviderPage && state.phase == PagePhase.READY && state.detail == null) {
+            // Present only when a leg of the flow left this window: the user gets to say what happened
+            // there, because nothing in this app can find out.
+            val acknowledge: (() -> Unit)? = if (state.awaitingProviderReturn) {
+                { engine.acknowledgeProviderReturn() }
+            } else {
+                null
+            }
             ForeignPageStrip(
-                host = ArenaSite.displayHost(state.url) ?: "another site",
+                text = Problems.providerStripText(ArenaSite.displayHost(state.url), state.awaitingProviderReturn),
                 onReturn = { if (!engine.goBack()) engine.openHome() },
+                onFinishedInBrowser = acknowledge,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .safeDrawingPadding()
@@ -307,10 +315,17 @@ private fun NoticeStrip(text: String, onDismiss: () -> Unit, modifier: Modifier 
 
 /**
  * The one piece of chrome about trust rather than status: while this window is showing an identity
- * provider's page, the user is told whose page it is, and how to get back.
+ * provider's page, the user is told whose page it is, and how to get back. When a leg of the flow went
+ * out to the browser, the same strip is where the user can say so — and where the platform's limit gets
+ * stated instead of hidden.
  */
 @Composable
-private fun ForeignPageStrip(host: String, onReturn: () -> Unit, modifier: Modifier = Modifier) {
+private fun ForeignPageStrip(
+    text: String,
+    onReturn: () -> Unit,
+    onFinishedInBrowser: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
     val palette = AppPalette
     Row(
         modifier
@@ -321,11 +336,16 @@ private fun ForeignPageStrip(host: String, onReturn: () -> Unit, modifier: Modif
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "You are on $host — the site's own sign-in page, not a copy of it.",
+            text = text,
             style = MaterialTheme.typography.bodySmall,
             color = palette.inkMuted,
             modifier = Modifier.weight(1f),
         )
+        if (onFinishedInBrowser != null) {
+            TextButton(onClick = onFinishedInBrowser, shape = RoundedCornerShape(8.dp)) {
+                Text("Finished there", color = palette.accent, fontSize = 13.sp)
+            }
+        }
         TextButton(onClick = onReturn, shape = RoundedCornerShape(8.dp)) {
             Text("Back to arena.ai", color = palette.accent, fontSize = 13.sp)
         }
@@ -334,9 +354,23 @@ private fun ForeignPageStrip(host: String, onReturn: () -> Unit, modifier: Modif
 
 /**
  * Titles and recovery lines in one place, so the sentences the app says about itself can be read and
- * argued with without a device. Each is checked by [ProblemsTest].
+ * argued with without a device. Each is checked by `BrowserReducerTest`.
  */
 object Problems {
+
+    /**
+     * What the strip over a provider page says. Two facts it may state, both verifiable from a
+     * navigation: which host is on screen, and whether a leg of the flow left the app. Never whether a
+     * session exists — the app cannot see one, in either window.
+     */
+    fun providerStripText(host: String?, awaitingReturn: Boolean): String = when {
+        awaitingReturn ->
+            "Sign-in continued in your browser, on ${host ?: "another host"}. A session made there stays " +
+                "there: this window has its own, and Android has no way to copy one into the other."
+
+        else ->
+            "You are on ${host ?: "another host"} — the site's own sign-in page, not a copy of it."
+    }
 
     fun titleOf(state: BrowserState): String = when {
         state.offline -> "No network"

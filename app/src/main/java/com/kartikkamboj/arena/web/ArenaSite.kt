@@ -14,17 +14,37 @@ import java.net.URLDecoder
 object ArenaSite {
 
     const val SCHEME = "https"
-    const val HOST = "arena.ai"
-    const val HOST_WWW = "www.arena.ai"
+
+    /**
+     * The site's registrable domain, and the one thing "ours" means: `arena.ai` itself and every
+     * subdomain of it. An explicit list of hosts was the previous rule, and it is what stranded
+     * sign-in — Arena's auth service is on `auth.arena.ai`.
+     */
+    const val SITE_DOMAIN = "arena.ai"
 
     /** Entry point. After a sign-in or a successful load, this is where the view starts. */
-    const val HOME = "https://arena.ai/"
+    const val HOME = "$SCHEME://$SITE_DOMAIN/"
 
     /** Origin used for cookie-policy calls; host-only, matching how the site sets its cookies. */
-    const val COOKIE_URL = "https://arena.ai"
+    const val COOKIE_URL = "$SCHEME://$SITE_DOMAIN"
 
-    /** Pages the app renders as itself — the product, not somebody else's site. */
-    val TRUSTED_HOSTS = setOf(HOST, HOST_WWW)
+    /**
+     * The site's own registrable domain. Anything under it is the site, and it has to be: Arena serves
+     * its authentication on a subdomain (`https://auth.arena.ai/` answers a live gateway of its own), so
+     * an exact-host rule sends the sign-in page out to a browser tab on the very first hop — and a
+     * session created in that tab cannot come back to this window. docs/AUTHENTICATION.md has the
+     * whole chain, the two return paths that are closed, and what this trades away.
+     *
+     * The trade is stated plainly: this trusts whatever DNS for `arena.ai` says, which is Arena's
+     * boundary to get right, not this app's. A browser behaves the same way about cookies for a
+     * parent domain; refusing to would break sign-in, which is the worse failure.
+     */
+    /**
+     * Domains the identity provider itself serves pages from. Allowed to render **only while the
+     * window is already showing provider UI** — see [NavigationPolicy]'s `fromProviderPage` rule — so
+     * a stray link to someone's Google Doc still leaves the app like any other external link.
+     */
+    val PROVIDER_DOMAINS = setOf("google.com", "googleapis.com", "gmail.com")
 
     /**
      * Identity-provider pages that a sign-in started on arena.ai has to pass through. They are
@@ -41,14 +61,41 @@ object ArenaSite {
         "oauth2.googleapis.com",
     )
 
-    fun isTrusted(raw: String?): Boolean {
+    /**
+     * Part of the site, on any of its own subdomains. What the policy uses to decide "ours", and what
+     * an incoming `ACTION_VIEW` link is checked against before it can move the window.
+     */
+    fun isSiteFamily(raw: String?): Boolean {
         val parsed = ParsedUrl.of(raw) ?: return false
-        return parsed.isHttps && parsed.hostIn(TRUSTED_HOSTS)
+        return parsed.isHttps && parsed.hostUnder(SITE_DOMAIN)
     }
 
+    /** Google's published sign-in and OAuth endpoints, by exact host. */
     fun isAuthPage(raw: String?): Boolean {
         val parsed = ParsedUrl.of(raw) ?: return false
         return parsed.isHttps && parsed.hostIn(AUTH_HOSTS)
+    }
+
+    /**
+     * Whether this URL is somewhere the provider serves its own UI. Wider than [isAuthPage], and used
+     * for two different things: telling the user whose page they are looking at, and keeping a
+     * redirect chain that wanders across the provider's domains inside this window instead of
+     * breaking it.
+     */
+    fun isProviderPage(raw: String?): Boolean {
+        val parsed = ParsedUrl.of(raw) ?: return false
+        return parsed.isHttps && PROVIDER_DOMAINS.any { parsed.hostUnder(it) }
+    }
+
+    /**
+     * A URL reduced to what may be written in a log: host and path, never the query. OAuth puts a
+     * `code`, a `state` and an `id_token` in the query string, so a "helpful" full-URL log line would
+     * put a live credential in logcat. [AppLog] redacts anyway; not writing it down is the better rule.
+     */
+    fun forLog(raw: String?): String {
+        val parsed = ParsedUrl.of(raw) ?: ParsedUrl.lenient(raw) ?: return "an unparseable url"
+        val path = parsed.path.takeIf { it.isNotBlank() && it != "/" } ?: ""
+        return "${parsed.host ?: "?"}$path"
     }
 
     /**

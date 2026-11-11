@@ -151,15 +151,20 @@ class BrowserEngine(
     fun load(url: String) {
         val target = url.trim()
         if (target.isEmpty()) return
-        when (val decision = NavigationPolicy.classify(target)) {
+        val fromProviderPage = ArenaSite.isProviderPage(_browser.value.url)
+        when (val decision = NavigationPolicy.classify(target, fromProviderPage)) {
             is Decision.LoadInApp -> {
                 loadedOnce = true
+                AppLog.d("load ${ArenaSite.forLog(decision.url)}")
                 onLoadStarted(decision.url)
                 ensureView().loadUrl(decision.url)
             }
 
             is Decision.HandOffToBrowser -> openExternal(decision.url, decision.reason)
-            is Decision.Block -> say(NavigationPolicy.blockExplanation(decision.reason))
+            is Decision.Block -> {
+                AppLog.w("load refused: ${decision.reason}")
+                say(NavigationPolicy.blockExplanation(decision.reason))
+            }
         }
     }
 
@@ -264,12 +269,30 @@ class BrowserEngine(
     fun openExternal(url: String, reason: HandoffReason) {
         val host = ArenaSite.displayHost(url)
         say(NavigationPolicy.handoffExplanation(reason, host))
+        AppLog.d("hand-off ${ArenaSite.forLog(url)} [$reason]")
+        // The case this app must never strand: a leg of a sign-in chain leaving for the browser, where
+        // the browser's session is unreachable from here by design. Record it, so the shell can offer
+        // the user an honest way back instead of leaving a provider page on screen forever.
+        if (ArenaSite.isProviderPage(_browser.value.url) || ArenaSite.isAuthPage(url)) {
+            dispatch(BrowserEvent.ProviderHandoff)
+        }
         val handler = onOpenExternal
         if (handler == null) {
             AppLog.w("no window available to hand off to; nothing was opened")
             return
         }
-        handler(url, reason)
+        val launched = runCatching { handler(url, reason) }
+        if (launched.isFailure) AppLog.w("hand-off failed", launched.exceptionOrNull())
+    }
+
+    /**
+     * The user says the sign-in ended in their browser. Nothing here claims an outcome: the window goes
+     * back to the site so the page itself can show what it knows, and the one sentence said is about
+     * the platform limit. Load first, then speak — a new navigation clears the previous notice.
+     */
+    fun acknowledgeProviderReturn() {
+        openHome()
+        dispatch(BrowserEvent.ProviderReturnAck)
     }
 
     // ------------------------------------------------------------------ downloads

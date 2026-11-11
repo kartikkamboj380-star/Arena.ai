@@ -51,10 +51,12 @@ class ShellInstrumentedTest {
         for (raw in urls) {
             val host = Uri.parse(raw).host?.lowercase()
             // The same rule as the policy's, expressed through the framework's own parser: an https
-            // URL on one of the two hosts, and nothing else.
+            // URL on arena.ai or any subdomain of it, and nothing else. This is the device-side check
+            // that the app's parser and the platform's agree about where a sign-in may render — the
+            // bug that motivated it was exactly a disagreement about `auth.arena.ai`.
             val trustedByFramework = Uri.parse(raw).scheme == "https" &&
-                (host == "arena.ai" || host == "www.arena.ai")
-            assertEquals("trust mismatch for $raw", trustedByFramework, ArenaSite.isTrusted(raw))
+                (host == "arena.ai" || host?.endsWith(".arena.ai") == true)
+            assertEquals("trust mismatch for $raw", trustedByFramework, ArenaSite.isSiteFamily(raw))
         }
     }
 

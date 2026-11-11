@@ -14,6 +14,17 @@ data class ParsedUrl(val scheme: String?, val host: String?, val path: String, v
     /** Membership test that keeps a null host from ever matching, instead of pretending it is "". */
     fun hostIn(hosts: Set<String>): Boolean = host != null && host in hosts
 
+    /**
+     * Whether [host] is [domain] itself or a subdomain of it. Suffix matching is done on label
+     * boundaries on purpose: `arena.ai.evil.net` and `notarena.ai` must not be mistaken for
+     * `arena.ai`, which is the classic way a "starts with"/"ends with" check goes wrong.
+     */
+    fun hostUnder(domain: String): Boolean {
+        val h = host ?: return false
+        val d = domain.lowercase().trimEnd('.')
+        return h == d || h.endsWith(".$d")
+    }
+
     companion object {
         /**
          * Structural fallback for addresses a browser would accept but [URI] rejects — a space in a

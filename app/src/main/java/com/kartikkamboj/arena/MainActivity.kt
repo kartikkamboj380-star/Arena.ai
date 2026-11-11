@@ -16,6 +16,7 @@ import com.kartikkamboj.arena.core.AppLog
 import com.kartikkamboj.arena.di.AppContainer
 import com.kartikkamboj.arena.ui.ArenaApp
 import com.kartikkamboj.arena.ui.theme.ArenaTheme
+import com.kartikkamboj.arena.web.ArenaSite
 import com.kartikkamboj.arena.web.NavigationPolicy.HandoffReason
 
 /**
@@ -92,6 +93,14 @@ class MainActivity : ComponentActivity() {
     /** A tapped arena.ai link opens in the same window, and only ever after the navigation policy. */
     private fun handleDeepLink(intent: Intent?) {
         val data = intent?.dataString ?: return
+        // The action and the host are what matters here: this is the only way a link outside the app
+        // can start a load, and a sign-in that "returns" by itself would arrive through this path.
+        AppLog.d(
+            "intent ${intent.action ?: "no action"} for ${ArenaSite.forLog(data)} " +
+                "[${if (ArenaSite.isSiteFamily(data)) "ours" else "not ours"}]",
+        )
+        // Loaded either way: `engine.load` runs it through the same policy every other navigation
+        // gets, so a foreign link here is handed off rather than rendered with our session.
         engine.load(data)
     }
 
@@ -145,8 +154,10 @@ class MainActivity : ComponentActivity() {
         val tabOpened = runCatching {
             CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, uri)
         }.isSuccess
+        AppLog.d("browser hand-off via ${if (tabOpened) "custom tab" else "ACTION_VIEW fallback"}")
         if (!tabOpened) {
             if (runCatching { startActivity(plainView) }.isFailure) {
+                AppLog.w("no browser accepted the hand-off at all")
                 engine.say("No browser is available on this device, so the link could not be opened.")
             }
         }

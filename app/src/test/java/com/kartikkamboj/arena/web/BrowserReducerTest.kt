@@ -195,4 +195,49 @@ class BrowserReducerTest {
         val text = NavigationPolicy.handoffExplanation(HandoffReason.EXTERNAL_LINK, "example.org")
         assertTrue(text.startsWith("example.org"))
     }
+
+    @Test
+    fun `a provider hand-off is remembered and any navigation ends the waiting`() {
+        val handed = reduce(BrowserState(), BrowserEvent.ProviderHandoff)
+        assertTrue(handed.state.awaitingProviderReturn)
+        assertTrue("a hand-off must not move the page or invent a load", handed.effects.isEmpty())
+        val navigating = reduce(handed.state, BrowserEvent.LoadStarted(home))
+        assertFalse(navigating.state.awaitingProviderReturn)
+    }
+
+    @Test
+    fun `the acknowledgement states a platform limit and claims nothing about a session`() {
+        val awaiting = reduce(BrowserState(), BrowserEvent.ProviderHandoff).state
+        val ack = reduce(awaiting, BrowserEvent.ProviderReturnAck)
+        assertFalse(ack.state.awaitingProviderReturn)
+        val said = ack.effects.filterIsInstance<BrowserEffect.Say>().single().text
+        assertTrue(said, said.contains("no way to copy"))
+        assertFalse(said, said.contains("signed in"))
+        assertFalse(said, said.contains("logged in"))
+        assertTrue(said, said.contains("site's own form"))
+    }
+
+    @Test
+    fun `the provider strip says only what a navigation can prove`() {
+        val normal = Problems.providerStripText("accounts.google.com", awaitingReturn = false)
+        assertTrue(normal, normal.contains("You are on accounts.google.com"))
+        val stranded = Problems.providerStripText("accounts.google.com", awaitingReturn = true)
+        assertTrue(stranded, stranded.contains("your browser"))
+        assertTrue(stranded, stranded.contains("stays"))
+        for (text in listOf(normal, stranded)) {
+            assertFalse(text, text.contains("signed in"))
+            assertFalse(text, text.contains("success"))
+        }
+        assertTrue(Problems.providerStripText(null, false).contains("another host"))
+    }
+
+    @Test
+    fun `there is no state the app could use to report a login`() {
+        // The bug this pins: an app that says "signed in" because a redirect looked right. The phase
+        // list has no such value, so no branch could claim it even by accident.
+        val names = PagePhase.values().map { it.name }
+        for (forbidden in listOf("AUTHENTICATED", "SIGNED_IN", "LOGGED_IN", "AUTHORIZED")) {
+            assertFalse(names.toString(), names.any { it.contains(forbidden) })
+        }
+    }
 }
