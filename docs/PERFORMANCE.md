@@ -26,6 +26,7 @@ costs memory on exactly that device.
 | `appcompat`, `androidx-core-ktx` | the theme is a platform `Theme.Material.*` theme; no API 26 backport needed |
 | `lifecycle-process`, `lifecycle-runtime-ktx` | the Activity's own callbacks are the lifecycle signal |
 | `espresso-core`, `kotlinx-coroutines-test` | the instrumentation tests do not need them (see docs/TESTING.md) |
+| `androidx.compose.ui:ui-tooling`, `:ui-tooling-preview` | removed after the first green build: the project has no `@Preview` function, so the debug-only tooling was being dexed into every debug APK for a feature nobody uses, and the preview annotation library was in the release classpath for the same reason |
 | `data` layer + `res/xml/{backup,data_extraction,locales}` | no store, no rules about a store, no per-app locale list |
 | never-shipped PNG asset in `docs/assets` | not referenced by anything (a docs asset costs no APK bytes, but it was noise) |
 

@@ -13,9 +13,9 @@
 | minSdk | 26 (Android 8.0) | adaptive icons, `onRenderProcessGone` and the back callback are all assumed available |
 
 Nothing else. No plugins to install, no NDK, no KSP, no Room, no API keys, no `google-services.json`,
-no `secrets` step: the app has no keys to hold — it calls no API and stores nothing (10 runtime
-dependencies plus the Compose BOM, every one of them justified in docs/PERFORMANCE.md; 1 test,
-1 debug-only line for the Compose test manifest, and 5 instrumentation lines).
+no `secrets` step: the app has no keys to hold — it calls no API and stores nothing (9 runtime
+dependencies plus the Compose BOM, every one of them justified in docs/PERFORMANCE.md; 1 test line,
+5 instrumentation lines, and no debug-only lines at all).
 
 ## 2. Point the build at your SDK
 
