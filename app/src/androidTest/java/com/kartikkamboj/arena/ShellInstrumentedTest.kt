@@ -21,7 +21,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Device-only checks: the two places where the JVM cannot tell the truth.
+ * Device-only checks: the things the JVM cannot tell the truth about.
  *
  * `android.net.Uri` is a stub in unit tests, so the parser the navigation policy relies on is compared
  * against the real framework class here; the window-request rules need a live `WebView`, because the
