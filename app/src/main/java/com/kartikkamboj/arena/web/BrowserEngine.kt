@@ -483,7 +483,12 @@ class BrowserEngine(
     private fun gesturelessHref(requester: WebView): String? {
         val result = runCatching { requester.hitTestResult }.getOrNull() ?: return null
         val type = runCatching { result.type }.getOrDefault(0)
-        if (type != WebView.SRC_ANCHOR_TYPE && type != WebView.SRC_IMAGE_ANCHOR_TYPE) return null
+        // The two hit-test types that carry a URL the user actually tapped. `ANCHOR_TYPE` and
+        // `IMAGE_ANCHOR_TYPE` also exist but are deprecated and "no longer used", so matching them
+        // would be matching nothing.
+        if (type != WebView.HitTestResult.SRC_ANCHOR_TYPE && type != WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+            return null
+        }
         return result.extra?.takeIf { it.isNotBlank() }
     }
 
