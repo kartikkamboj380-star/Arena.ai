@@ -13,7 +13,7 @@ README covers only the first group.
 | Validate workflow syntax | the pipeline itself parses (a broken YAML cannot silently stop testing things) |
 | Refuse to build with secrets in the tree | no keystore, `local.properties`, service credentials or key-shaped literal is committed |
 | **Refuse the capabilities the docs deny** | the promises in README/docs are mechanical: no `addJavascriptInterface`, no `evaluateJavascript`, no cookie read/clear, no `pauseTimers()`, no HTTP client, no telemetry, and **exactly one** `WebView` construction in `app/src/main` |
-| Run JVM unit tests | `:app:testDebugUnitTest` — 68 tests, must pass |
+| Run JVM unit tests | `:app:testDebugUnitTest` — 69 tests, must pass |
 | Assemble debug APK, instrumentation APK and lint | `:app:assembleDebug`, `:app:assembleDebugAndroidTest`, `:app:lintDebug` |
 | Report the failure on the pull request | on red, `tools/ci_explain.py` posts a parsed diagnosis as a PR comment; on green, a stale failure report gets a resolution beside it |
 | Artifacts | `arena-ai-debug.apk`, `unit-test-results`, `lint-report` |
@@ -25,7 +25,7 @@ rather than promoted to correctness.
 
 ## 2. JVM unit tests — executed on every run
 
-68 tests in 5 files. Each row is the promise the file pins, not a topic.
+69 tests in 5 files. Each row is the promise the file pins, not a topic.
 
 | File | Tests | Pins |
 | --- | --- | --- |
