@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -38,6 +40,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kartikkamboj.arena.di.AppContainer
 import com.kartikkamboj.arena.ui.theme.AppPalette
+import com.kartikkamboj.arena.ui.theme.ArenaPalette
 import com.kartikkamboj.arena.web.ArenaSite
 import com.kartikkamboj.arena.web.BrowserState
 import com.kartikkamboj.arena.web.NavigationPolicy.HandoffReason
@@ -117,6 +120,17 @@ fun ArenaApp(container: AppContainer) {
             )
         }
 
+        // Last in the z-order, on purpose: the page's own window belongs above the page, and the scrim
+        // under it is what keeps it from being mistaken for the site.
+        state.popup?.let { window ->
+            PopupSheet(
+                label = window.label,
+                onClose = engine::closePopup,
+                onHost = { frame -> engine.attachPopupInto(frame) },
+                onRelease = { frame -> engine.detachPopupFrom(frame) },
+            )
+        }
+
         if (state.onProviderPage && state.phase == PagePhase.READY && state.detail == null) {
             // Present only when a leg of the flow left this window: the user gets to say what happened
             // there, because nothing in this app can find out.
@@ -133,6 +147,69 @@ fun ArenaApp(container: AppContainer) {
                     .align(Alignment.BottomCenter)
                     .safeDrawingPadding()
                     .padding(horizontal = 14.dp, vertical = 12.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The page's `window.open()` window, shown as a labelled sheet rather than quietly pasted over the site.
+ *
+ * This exists because Android's guidance for `onCreateWindow` is that a new window must not simply be
+ * overlaid: the user has to be able to tell which page they are signing in to. The label is the host the
+ * popup is actually on — read from the popup itself, never assumed — and Close is the only affordance,
+ * because nothing else in this app is allowed to act inside somebody else's window.
+ */
+@Composable
+private fun PopupSheet(
+    label: String,
+    onClose: () -> Unit,
+    onHost: (FrameLayout) -> Unit,
+    onRelease: (FrameLayout) -> Unit,
+) {
+    val palette = AppPalette
+    val shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(ArenaPalette.Scrim),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            Modifier
+                .padding(top = 44.dp)
+                .fillMaxWidth()
+                .fillMaxHeight(0.92f)
+                .clip(shape)
+                .background(palette.surface),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(palette.surfaceHigh)
+                    .padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.inkMuted,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onClose, shape = RoundedCornerShape(8.dp)) {
+                    Text("Close", color = palette.accent, fontSize = 13.sp)
+                }
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close this window", tint = palette.inkMuted)
+                }
+            }
+            AndroidView(
+                factory = { context -> FrameLayout(context) },
+                update = { frame -> onHost(frame) },
+                onRelease = { frame -> onRelease(frame) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
             )
         }
     }

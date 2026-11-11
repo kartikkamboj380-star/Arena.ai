@@ -72,7 +72,9 @@ class MainActivity : ComponentActivity() {
         // Back belongs to the page first: an arena.ai thread is a browser history entry, and leaving
         // it is what a user expects. Only an exhausted history closes the app.
         onBackPressedDispatcher.addCallback(this) {
-            if (!engine.goBack()) this@MainActivity.finish()
+            // The page's own window closes first, then the site's history — the order a browser uses,
+            // and the reason a popup can never trap the user.
+            if (!engine.handleBack()) this@MainActivity.finish()
         }
 
         handleDeepLink(intent)

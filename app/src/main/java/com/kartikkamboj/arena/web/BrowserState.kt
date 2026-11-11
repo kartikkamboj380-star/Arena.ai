@@ -44,6 +44,8 @@ data class BrowserState(
      * why the shell offers an acknowledgement rather than guessing an outcome.
      */
     val awaitingProviderReturn: Boolean = false,
+    /** The transient window `window.open()` asked for, or null when nothing is above the page. */
+    val popup: Popup? = null,
 ) {
     /**
      * Whether this window is currently showing an identity provider's page rather than the site. The
@@ -112,6 +114,15 @@ sealed interface BrowserEvent {
 
     /** The user said they finished the sign-in in the browser. Clears the flag; asserts nothing else. */
     object ProviderReturnAck : BrowserEvent
+
+    /** The page opened a popup window; [host] is unknown until its first page starts loading. */
+    object PopupOpened : BrowserEvent
+
+    /** The popup is now showing [host]. */
+    data class PopupShown(val host: String?) : BrowserEvent
+
+    /** The popup is gone — closed by the page, by the user, or by a dead renderer. */
+    object PopupClosed : BrowserEvent
     object RetryRequested : BrowserEvent
     object Backgrounded : BrowserEvent
     object Foregrounded : BrowserEvent
@@ -123,6 +134,21 @@ sealed interface BrowserEffect {
 
     /** Tell the user something in one line, in the app's own words. */
     data class Say(val text: String) : BrowserEffect
+}
+
+/**
+ * The page's transient second window — `window.open()`, which is how Google's sign-in button works.
+ *
+ * [host] is the only thing the shell may say about it, and saying even that is a promise the platform
+ * asks for: Android's guidance on `onCreateWindow` is that a new window must not simply be overlaid on
+ * the page, because the user could otherwise mistake which site they are looking at. The host is what
+ * makes the difference visible; nothing here knows or guesses more than that.
+ */
+data class Popup(val host: String? = null) {
+    /** What the strip says when the window has not reported a page yet. */
+    val label: String
+        get() = host?.let { "You are looking at a window the page opened — $it, not arena.ai." }
+            ?: "A window the page just opened is on screen. It is not part of arena.ai."
 }
 
 data class Reduction(val state: BrowserState, val effects: List<BrowserEffect> = emptyList())
@@ -185,6 +211,21 @@ object BrowserReducer {
                 detail = "Your sign-in provider answered this window with HTTP ${event.status}. Providers " +
                     "sometimes refuse to work inside another app, and this app will not pretend otherwise.",
             ),
+        )
+
+        BrowserEvent.PopupOpened -> Reduction(
+            state.copy(popup = Popup()),
+        )
+
+        is BrowserEvent.PopupShown ->
+            // Only ever a label for a window that is open: a late callback from a popup that already
+            // closed must not put an empty sheet back on the screen.
+            if (state.popup == null) Reduction(state) else Reduction(
+                state.copy(popup = Popup(host = event.host)),
+            )
+
+        BrowserEvent.PopupClosed -> Reduction(
+            state.copy(popup = null),
         )
 
         BrowserEvent.ProviderHandoff -> Reduction(

@@ -142,4 +142,32 @@ class ArenaSiteTest {
         assertEquals("an unparseable url", ArenaSite.forLog("not a url at all"))
         assertEquals("an unparseable url", ArenaSite.forLog(null))
     }
+    @Test
+    fun `the oauth trail reports parameter names and never a value`() {
+        val url = "https://accounts.google.com/o/oauth2/v2/auth" +
+            "?response_type=code&client_id=123.apps.googleusercontent.com&redirect_uri=" +
+            "https://arena.ai/api/auth/callback/google&scope=openid%20email&state=SECRETSTATE" +
+            "&nonce=SECRETNONCE&ux_mode=popup&unlisted=whatever"
+        val names = ArenaSite.oauthParameterNames(url)
+        // Sorted and deduplicated, so the same flow always produces the same line to compare against.
+        assertEquals("client_id,nonce,redirect_uri,response_type,scope,state,ux_mode", names)
+        assertFalse("a value must never reach the log", names.contains("SECRETSTATE"))
+        assertFalse("a value must never reach the log", names.contains("SECRETNONCE"))
+        assertFalse("a path inside a value is not reportable either", names.contains("arena.ai"))
+        assertFalse("only the allow-listed names are reportable", names.contains("unlisted"))
+    }
+
+    @Test
+    fun `a url with nothing reportable gives an empty trail, not a guess`() {
+        assertEquals("", ArenaSite.oauthParameterNames("https://arena.ai/battle"))
+        assertEquals("", ArenaSite.oauthParameterNames("https://accounts.google.com/gis_transform?bsv=7"))
+        assertEquals("", ArenaSite.oauthParameterNames(null))
+        assertEquals("", ArenaSite.oauthParameterNames("https://accounts.google.com/x#state=SECRETSTATE"))
+        assertEquals(
+            "a fragment is not a query, and an error name is worth reporting",
+            "error",
+            ArenaSite.oauthParameterNames("https://accounts.google.com/x?error=invalid_request#state=S"),
+        )
+    }
+
 }

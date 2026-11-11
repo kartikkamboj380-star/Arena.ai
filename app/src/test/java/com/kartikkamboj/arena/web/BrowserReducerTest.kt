@@ -5,6 +5,7 @@ import com.kartikkamboj.arena.ui.Problems
 import com.kartikkamboj.arena.web.NavigationPolicy.HandoffReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -240,4 +241,63 @@ class BrowserReducerTest {
             assertFalse(names.toString(), names.any { it.contains(forbidden) })
         }
     }
+    // ---- the page's own window (window.open) ---------------------------------------------------
+
+    @Test
+    fun `a popup opens as a window and closes as a window`() {
+        val opened = BrowserReducer.reduce(BrowserState(), BrowserEvent.PopupOpened).state
+        assertNotNull("the sheet has to be on screen before the window has a page", opened.popup)
+        assertNull("a window with no page yet has no host to name", opened.popup?.host)
+
+        val labelled = BrowserReducer.reduce(opened, BrowserEvent.PopupShown("accounts.google.com")).state
+        assertEquals("accounts.google.com", labelled.popup?.host)
+        assertTrue(labelled.popup?.label?.contains("accounts.google.com") == true)
+
+        val closed = BrowserReducer.reduce(labelled, BrowserEvent.PopupClosed).state
+        assertNull("a closed window must leave nothing behind", closed.popup)
+    }
+
+    @Test
+    fun `the popup's own page is never mistaken for the site's`() {
+        // The bug this pins: the popup navigates, and the app reports that as if the site had
+        // navigated — a Google page under the strip, then a "problem with arena.ai" panel when the
+        // popup fails. Popup events move the popup and nothing else.
+        val site = BrowserState(url = home, phase = PagePhase.READY, firstPaint = true)
+        val events = listOf<BrowserEvent>(
+            BrowserEvent.PopupOpened,
+            BrowserEvent.PopupShown("accounts.google.com"),
+            BrowserEvent.PopupShown(null),
+            BrowserEvent.PopupClosed,
+        )
+        for (event in events) {
+            val result = BrowserReducer.reduce(site, event)
+            assertEquals("popup events cannot rewrite the address: $event", home, result.state.url)
+            assertEquals("popup events cannot change the phase: $event", PagePhase.READY, result.state.phase)
+            assertTrue("popup events produce no effects: $event", result.effects.isEmpty())
+            assertNull("popup events cannot raise a problem panel: $event", result.state.detail)
+            assertNull("popup events cannot raise a notice: $event", result.state.notice)
+        }
+    }
+
+    @Test
+    fun `a late popup callback cannot reopen a closed window`() {
+        val closed = BrowserReducer.reduce(BrowserState(), BrowserEvent.PopupClosed).state
+        val late = BrowserReducer.reduce(closed, BrowserEvent.PopupShown("accounts.google.com")).state
+        assertNull("an empty sheet over the site is worse than no sheet", late.popup)
+    }
+
+    @Test
+    fun `what the sheet says about a window names it and promises nothing`() {
+        val withHost = Popup("accounts.google.com").label
+        val withoutHost = Popup(null).label
+        for (label in listOf(withHost, withoutHost)) {
+            assertFalse(label, label.contains("signed in"))
+            assertFalse(label, label.contains("logged in"))
+            assertFalse(label, label.contains("success"))
+            assertFalse(label, label.contains("Complete"))
+        }
+        assertTrue(withHost, withHost.contains("accounts.google.com"))
+        assertTrue(withoutHost, withoutHost.contains("not part of arena.ai"))
+    }
+
 }

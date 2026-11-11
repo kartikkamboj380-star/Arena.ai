@@ -1,6 +1,7 @@
 package com.kartikkamboj.arena.web
 
 import android.graphics.Bitmap
+import android.os.Message
 import android.net.http.SslError
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -49,36 +50,54 @@ class ArenaWebViewClient(private val engine: BrowserEngine) : WebViewClient() {
             "nav ${ArenaSite.forLog(view.url)} -> ${ArenaSite.forLog(url)} " +
                 "[${NavigationPolicy.logSummary(decision)}]",
         )
+        val inPopup = engine.isPopup(view)
+        if (inPopup) engine.notePopupUrl(view, url)
         return when (decision) {
             is Decision.LoadInApp -> false
 
             is Decision.HandOffToBrowser -> {
                 engine.openExternal(decision.url, decision.reason)
+                // A popup whose content wants to leave the app has nothing left to show, and an empty
+                // sheet over the site is worse than the link having simply been handed off.
+                if (inPopup) engine.closePopup()
                 true
             }
 
             is Decision.Block -> {
                 AppLog.w("refused navigation: ${decision.reason}")
                 engine.say(NavigationPolicy.blockExplanation(decision.reason))
+                if (inPopup) engine.closePopup()
                 true
             }
         }
     }
 
     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+        if (engine.isPopup(view)) {
+            engine.notePopupUrl(view, url)
+            return
+        }
         engine.onLoadStarted(url)
     }
 
     override fun onPageFinished(view: WebView, url: String?) {
+        if (engine.isPopup(view)) return
         engine.onPageFinished(url)
     }
 
     /** An SPA pushing history changes what Back can do; the shell's affordance follows that, not a guess. */
     override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+        // The popup's history is not the page's: the shell's Back affordance must not answer to a window
+        // that may already be gone.
+        if (engine.isPopup(view)) return
         engine.dispatch(BrowserEvent.CanGoBackChanged(view.canGoBack()))
     }
 
     override fun onReceivedError(view: WebView, request: WebResourceRequest?, error: WebResourceError?) {
+        if (engine.isPopup(view)) {
+            if (request?.isForMainFrame == true) engine.notePopupFailure(view, error?.description?.toString())
+            return
+        }
         engine.onLoadFailed(
             errorCode = error?.errorCode ?: WebViewClient.ERROR_UNKNOWN,
             description = error?.description?.toString(),
@@ -88,6 +107,12 @@ class ArenaWebViewClient(private val engine: BrowserEngine) : WebViewClient() {
     }
 
     override fun onReceivedHttpError(view: WebView, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+        if (engine.isPopup(view)) {
+            if (request?.isForMainFrame == true) {
+                engine.notePopupError(view, request?.url?.toString(), errorResponse?.statusCode ?: 0)
+            }
+            return
+        }
         engine.onHttpError(
             status = errorResponse?.statusCode ?: 0,
             forMainFrame = request?.isForMainFrame ?: false,
@@ -101,6 +126,10 @@ class ArenaWebViewClient(private val engine: BrowserEngine) : WebViewClient() {
      */
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError?) {
         handler.cancel()
+        if (engine.isPopup(view)) {
+            engine.notePopupTlsFailure(view, error?.url)
+            return
+        }
         AppLog.w("TLS error on ${error?.url?.let { ArenaSite.displayHost(it) } ?: "a resource"}; load cancelled")
         engine.dispatch(
             BrowserEvent.LoadFailed(
@@ -117,6 +146,11 @@ class ArenaWebViewClient(private val engine: BrowserEngine) : WebViewClient() {
      * [BrowserEngine.onRendererGone] owns the replacement view.
      */
     override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+        if (engine.isPopup(view)) {
+            // Only the popup's renderer went away; the page underneath survives and is not rebuilt.
+            engine.closePopup()
+            return true
+        }
         detail?.let { engine.onRendererGone(it) } ?: engine.destroyView()
         return true
     }
@@ -125,6 +159,8 @@ class ArenaWebViewClient(private val engine: BrowserEngine) : WebViewClient() {
 class ArenaWebChromeClient(private val engine: BrowserEngine) : WebChromeClient() {
 
     override fun onProgressChanged(view: WebView?, newProgress: Int) {
+        // The strip at the top of the screen belongs to the page, not to a window floating above it.
+        if (engine.isPopup(view)) return
         engine.onLoadProgress(newProgress)
     }
 
@@ -151,6 +187,28 @@ class ArenaWebChromeClient(private val engine: BrowserEngine) : WebChromeClient(
      * permission, so an in-page recorder cannot work here even if the site offers one. Denying and
      * saying so is the honest behaviour; the notice points at the way to use it (the browser).
      */
+    /**
+     * `window.open()`. The engine decides whether to honour it, and nothing here pretends to know more
+     * than the platform gives: this callback carries no URL, and Android says the requesting frame
+     * cannot be identified (it could be a third-party iframe), so no policy is applied to a URL we were
+     * never handed. The window that does get created runs this same [ArenaWebViewClient], which is what
+     * keeps it inside the app's rules rather than beside them.
+     */
+    override fun onCreateWindow(
+        view: WebView?,
+        isDialog: Boolean,
+        isUserGesture: Boolean,
+        resultMsg: Message?,
+    ): Boolean {
+        if (view == null || resultMsg == null) return false
+        return engine.requestPopup(view, isUserGesture, resultMsg)
+    }
+
+    /** The page called `window.close()` — the normal end of a popup sign-in, once the reply lands. */
+    override fun onCloseWindow(window: WebView?) {
+        engine.onClosePopup(window)
+    }
+
     override fun onPermissionRequest(request: PermissionRequest) {
         runCatching { request.deny() }
         // getOrigin() is a Uri on the device and the app has no reason to look inside it beyond the

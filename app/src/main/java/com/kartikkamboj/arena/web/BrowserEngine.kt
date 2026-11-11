@@ -5,6 +5,7 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.os.Message
 import android.view.ContextThemeWrapper
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -36,9 +37,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * response that is already streaming finish arriving. What the shell displays is derived from
  * [BrowserReducer], so the words in the UI and the state of the view cannot drift apart.
  *
- * There is no JavaScript bridge, no injected script, no cookie extraction, no user-agent override and
- * no second or hidden WebView anywhere in this class. `android.webkit` is used exactly as documented
- * and no more, which is also what keeps the whole app small.
+ * There is no JavaScript bridge, no injected script, no cookie extraction and no user-agent override in
+ * this class. It constructs every `WebView` in the app — the one persistent page, plus at most one
+ * transient popup window that lives only while the page that opened it keeps it open — and both go
+ * through the same [configure], so no second window can be quietly less restricted than the first.
+ * `android.webkit` is used exactly as documented and no more, which is also what keeps the whole app small.
  */
 class BrowserEngine(
     context: Context,
@@ -59,6 +62,17 @@ class BrowserEngine(
 
     private var chooser: ValueCallback<Array<Uri>?>? = null
     private var loadedOnce = false
+
+    /**
+     * The transient window a page asked for with `window.open()`. At most one exists, it is never
+     * persisted, and it is destroyed the moment the page or the user closes it. It exists because
+     * Google's sign-in button is a popup: with multiple windows unsupported, the popup *replaced* this
+     * view's page, so the credential the popup posts back to its `window.opener` had nowhere to
+     * arrive — the flow ended on Google's `gis_transform` 400. docs/AUTHENTICATION.md §"the popup is
+     * the flow".
+     */
+    private var popupView: WebView? = null
+    private var popupFrame: ViewGroup? = null
 
     /** Set by the Activity: opens a Custom Tab or a system intent, depending on the reason. */
     var onOpenExternal: ((url: String, reason: HandoffReason) -> Unit)? = null
@@ -93,12 +107,19 @@ class BrowserEngine(
             // `databaseEnabled` used to switch on, is gone from Chromium: the setting has done nothing
             // since API 21 and is deprecated since 30, so it is not set rather than set and ignored.
             domStorageEnabled = true
-            // One WebView: a target="_blank" link continues in this view instead of spawning another.
-            setSupportMultipleWindows(false)
+            // Popups must be real windows: `window.open()` is how Google's sign-in button works, and a
+            // popup that overwrites the page instead has no `window.opener` to post its credential to.
+            // The window it asks for is granted only for a user gesture, and only through [requestPopup],
+            // which shows the host of what opened so a second page never masquerades as the site.
+            setSupportMultipleWindows(true)
+            // As in a browser: a script may not open a window unless the user asked for it.
             javaScriptCanOpenWindowsAutomatically = false
             // Nothing on the page may reach the device's files, and there is no bridge to abuse.
             allowFileAccess = false
-            allowContentAccess = false
+            // Left at the platform default (true) rather than switched off: `content://` reads are the
+            // stock behaviour every working wrapper keeps, they are gated by the URI permission the
+            // picker grants, and `file://` — the one with a real attack surface — stays closed above.
+            allowContentAccess = true
             setGeolocationEnabled(false)
             // Audio the page plays waits for a tap on the page, which is what a chat UI does anyway.
             mediaPlaybackRequiresUserGesture = true
@@ -118,8 +139,11 @@ class BrowserEngine(
         webView.setDownloadListener { url, _, disposition, mime, length ->
             startDownload(url, disposition, mime, length)
         }
-        // Third-party cookies are required for the site's own sign-in redirect chain to complete in
-        // this window. Scoped to this view only; the app never reads a cookie value anywhere.
+        // Third-party cookies are required for the site's own sign-in chain to complete in a WebView:
+        // the reply comes back on a request whose first-party is `accounts.google.com`, so a cookie set
+        // for the site is third-party to it. Per-view, because that is the only scope the API has — and
+        // it therefore has to be applied to the popup window too, which is where that reply actually
+        // lands when sign-in is a popup. The app never reads a cookie value anywhere.
         runCatching { CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true) }
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
     }
@@ -155,7 +179,7 @@ class BrowserEngine(
         when (val decision = NavigationPolicy.classify(target, fromProviderPage)) {
             is Decision.LoadInApp -> {
                 loadedOnce = true
-                AppLog.d("load ${ArenaSite.forLog(decision.url)}")
+                AppLog.d("load ${ArenaSite.forLog(decision.url)}${providerTrail(decision.url)}")
                 onLoadStarted(decision.url)
                 ensureView().loadUrl(decision.url)
             }
@@ -295,6 +319,174 @@ class BrowserEngine(
         dispatch(BrowserEvent.ProviderReturnAck)
     }
 
+    /**
+     * For a provider navigation, the *names* of the OAuth parameters in its query — never the values.
+     * Google's failure pages all look like `Error 400` from the outside, and the parameter set is what
+     * tells `invalid_request` from `redirect_uri_mismatch` from a popup that fell back to a redirect.
+     */
+    private fun providerTrail(url: String?): String {
+        if (!ArenaSite.isProviderPage(url)) return ""
+        val names = ArenaSite.oauthParameterNames(url)
+        return if (names.isEmpty()) " [oauth params: none]" else " [oauth params: $names]"
+    }
+
+    // ------------------------------------------------------------------ popups
+
+    /**
+     * Answer to `window.open()`. Honoured only for a request the user caused, and only while no other
+     * popup is open — one window at a time keeps the memory story the rest of this class is built on.
+     *
+     * A request we refuse is not thrown away: pages that open a window without a gesture (rare, and the
+     * kind of thing a browser blocks) still get their target loaded here if it passes the same policy,
+     * which is what the previous single-window behaviour effectively did for everyone.
+     *
+     * @return true only when the transport was wired, because returning true without one is undefined.
+     */
+    fun requestPopup(requester: WebView, isUserGesture: Boolean, resultMsg: Message): Boolean {
+        if (!isUserGesture) {
+            val href = gesturelessHref(requester)
+            AppLog.d("popup refused without a user gesture" + (href?.let { ", falling back to $it" } ?: ""))
+            if (href != null) load(href)
+            return false
+        }
+        if (popupView != null) {
+            AppLog.w("a popup window is already open; this one was refused")
+            say("Arena already has a sign-in window open. Close it before opening another.")
+            return false
+        }
+        val themed = ContextThemeWrapper(appContext, R.style.Theme_Arena)
+        val popup = WebView(themed)
+        configure(popup)
+        popupView = popup
+        dispatch(BrowserEvent.PopupOpened)
+        // The composable that shows the strip mounts the same frame; if one is already on screen, the
+        // window is placed into it straight away rather than waiting for the next recomposition.
+        attachPopupIntoExistingFrame()
+        val transport = resultMsg.obj as? WebView.WebViewTransport
+        if (transport == null) {
+            AppLog.w("popup transport missing; the window was discarded")
+            closePopup()
+            return false
+        }
+        transport.setWebView(popup)
+        resultMsg.sendToTarget()
+        // The URL is not part of this callback — Android is explicit that no page identity can be
+        // trusted here — so the host label appears when the window starts loading.
+        AppLog.d("popup window created")
+        return true
+    }
+
+    /**
+     * One Back press: the page's window first, then the site's history — the order a browser uses, so a
+     * popup can never trap the user behind it.
+     */
+    fun handleBack(): Boolean {
+        if (popupView != null) {
+            closePopup()
+            return true
+        }
+        return goBack()
+    }
+
+    /** Whether [view] is the transient window rather than the app's page. */
+    fun isPopup(view: WebView?): Boolean = view != null && view === popupView
+
+    /** Called for every navigation the popup makes, so the strip can name the host it is really on. */
+    fun notePopupUrl(view: WebView?, url: String?) {
+        if (!isPopup(view)) return
+        val href = view?.url ?: url
+        val trail = providerTrail(href)
+        if (trail.isNotEmpty()) AppLog.d("popup request$trail")
+        dispatch(BrowserEvent.PopupShown(ArenaSite.displayHost(href)))
+    }
+
+    /**
+     * A failed load *inside* the popup — reported, never promoted. The page behind the popup is still
+     * loaded and healthy, so replacing it with a problem panel would describe something that did not
+     * happen to it, and the sign-in would look like an arena.ai failure rather than a Google answer.
+     */
+    fun notePopupFailure(view: WebView?, detail: String?) {
+        if (!isPopup(view)) return
+        AppLog.w("popup load failed: ${detail ?: "no detail"}${providerTrail(view?.url)}")
+        say("The window the page opened could not load. The page underneath it is untouched.")
+    }
+
+    /**
+     * An HTTP status on the popup's own page. A 400 from `accounts.google.com` here is the interesting
+     * case, which is why the OAuth parameter *names* travel with it: they are what separates
+     * `invalid_request` from `origin_mismatch` from a popup that fell back to a redirect.
+     */
+    fun notePopupError(view: WebView?, url: String?, status: Int) {
+        if (!isPopup(view)) return
+        val host = ArenaSite.displayHost(url) ?: "a page"
+        AppLog.w("popup answered $status on $host${providerTrail(url)}")
+        if (ArenaSite.isProviderPage(url)) {
+            say(
+                "The sign-in window got $status from $host. That is the identity provider's answer, " +
+                    "not a problem with this device or with your account.",
+            )
+        }
+    }
+
+    /** TLS inside the popup: the same rule as everywhere else in this app — never walked past. */
+    fun notePopupTlsFailure(view: WebView?, url: String?) {
+        if (!isPopup(view)) return
+        AppLog.w("popup TLS error on ${ArenaSite.displayHost(url) ?: "a page"}; load cancelled")
+        say("The window the page opened could not be loaded safely, so it was stopped.")
+    }
+
+    /** The page closed its own window (`window.close()`) — normal at the end of a sign-in. */
+    fun onClosePopup(window: WebView?) {
+        if (window == null || !isPopup(window)) return
+        closePopup()
+    }
+
+    /** Detaches and destroys the popup. Idempotent, and safe to call from any teardown path. */
+    fun closePopup() {
+        val popup = popupView ?: return
+        popupView = null
+        runCatching { popupFrame?.removeView(popup) }
+        runCatching { (popup.parent as? ViewGroup)?.removeView(popup) }
+        runCatching { popup.destroy() }.onFailure { AppLog.w("popup destroy failed", it) }
+        dispatch(BrowserEvent.PopupClosed)
+        AppLog.d("popup window closed")
+    }
+
+    /** The composable that hosts the popup calls this; it re-attaches on every recomposition. */
+    fun attachPopupInto(frame: ViewGroup) {
+        popupFrame = frame
+        val popup = popupView ?: return
+        for (i in frame.childCount - 1 downTo 0) {
+            if (frame.getChildAt(i) !== popup) frame.removeViewAt(i)
+        }
+        (popup.parent as? ViewGroup)?.removeView(popup)
+        frame.addView(
+            popup,
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+        )
+    }
+
+    fun detachPopupFrom(frame: ViewGroup) {
+        popupView?.let { if (it.parent === frame) frame.removeView(it) }
+        if (popupFrame === frame) popupFrame = null
+    }
+
+    private fun attachPopupIntoExistingFrame() {
+        popupFrame?.let { attachPopupInto(it) }
+    }
+
+    /**
+     * The only way to learn what a link was about to open: `onCreateWindow` carries no URL, and the
+     * platform says the requesting frame cannot be identified either, so this reads the same hit-test a
+     * long-press would. A miss is not chased — the gesture-less path simply stays a refusal.
+     */
+    private fun gesturelessHref(requester: WebView): String? {
+        val result = runCatching { requester.hitTestResult }.getOrNull() ?: return null
+        val type = runCatching { result.type }.getOrDefault(0)
+        if (type != WebView.SRC_ANCHOR_TYPE && type != WebView.SRC_IMAGE_ANCHOR_TYPE) return null
+        return result.extra?.takeIf { it.isNotBlank() }
+    }
+
     // ------------------------------------------------------------------ downloads
 
     /**
@@ -412,10 +604,14 @@ class BrowserEngine(
         runCatching { CookieManager.getInstance().flush() }
         val webView = _view.value ?: return
         runCatching { webView.clearCache(true) }
+        popupView?.let { runCatching { it.clearCache(true) } }
         AppLog.d("released the HTTP cache at trim level $level")
     }
 
     fun destroyView() {
+        // The popup's opener is this view; leaving it alive with no opener strands a half-finished
+        // sign-in on screen, so it goes first.
+        closePopup()
         val webView = _view.value ?: return
         _view.value = null
         runCatching { (webView.parent as? ViewGroup)?.removeView(webView) }
@@ -424,6 +620,7 @@ class BrowserEngine(
 
     /** Only when the Activity is finishing for real; the page is gone by definition at that point. */
     fun shutdown() {
+        closePopup()
         destroyView()
         finishChooser(null)
     }

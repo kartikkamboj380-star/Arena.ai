@@ -105,6 +105,37 @@ object ArenaSite {
     fun displayHost(raw: String?): String? = ParsedUrl.of(raw)?.host
 
     /**
+     * The *names* of the query parameters on a provider URL, never their values.
+     *
+     * This exists because Google's failure page distinguishes causes that look identical from outside:
+     * `Error 400: invalid_request`, `redirect_uri_mismatch`, `origin_mismatch`, `missing parameter`
+     * — all of them are a 400 on `accounts.google.com`, and the only thing that tells them apart is
+     * which OAuth parameters the authorization request carried. Printing the key list answers that
+     * without writing a `code`, a `state`, a `nonce` or an `id_token` into logcat.
+     *
+     * Returns an empty string when there is no query, so a caller can append it unconditionally.
+     */
+    fun oauthParameterNames(raw: String?): String {
+        val value = raw?.substringAfter('?', "").orEmpty().substringBefore('#')
+        if (value.isEmpty()) return ""
+        return value.split('&')
+            .mapNotNull { pair ->
+                val key = pair.substringBefore('=').trim()
+                key.takeIf { it.isNotEmpty() && OAUTH_KEYS.contains(key.lowercase()) }
+            }
+            .distinct()
+            .sorted()
+            .joinToString(",")
+    }
+
+    /** The parameter names worth reporting. Anything else in a query is not this app's business. */
+    private val OAUTH_KEYS = setOf(
+        "client_id", "redirect_uri", "response_type", "response_mode", "scope", "state", "nonce",
+        "prompt", "login_hint", "ux_mode", "origin", "include_granted_scopes", "access_type",
+        "code_challenge", "code_challenge_method", "grant_type", "error", "error_description",
+    )
+
+    /**
      * Suggests a filename for a download.
      *
      * `Content-Disposition` is honoured first (including the RFC 5987 `filename*` form), then the
