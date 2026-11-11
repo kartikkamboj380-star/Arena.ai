@@ -193,13 +193,13 @@ class NavigationPolicyTest {
     }
 
     @Test
-    fun `mid-chain does not mean unconditional: someone else's site still leaves`() {
+    fun `mid-chain is not unconditional because someone else's site still leaves`() {
         val decision = NavigationPolicy.classify("https://medium.com/@arena/notes", fromProviderPage = true)
         assertTrue(decision is NavigationPolicy.Decision.HandOffToBrowser)
     }
 
     @Test
-    fun `a cleartext request for any arena.ai host is upgraded rather than handed off`() {
+    fun `a cleartext request for a subdomain host is upgraded rather than handed off`() {
         val decision = NavigationPolicy.classify("http://auth.arena.ai/start")
         assertEquals("https://auth.arena.ai/start", (decision as NavigationPolicy.Decision.LoadInApp).url)
     }
