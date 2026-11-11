@@ -59,7 +59,6 @@ class BrowserEngine(
 
     private var chooser: ValueCallback<Array<Uri>?>? = null
     private var loadedOnce = false
-    private var releasedByMemory = false
 
     /** Set by the Activity: opens a Custom Tab or a system intent, depending on the reason. */
     var onOpenExternal: ((url: String, reason: HandoffReason) -> Unit)? = null
@@ -90,9 +89,10 @@ class BrowserEngine(
         with(settings) {
             // The site *is* a JavaScript app; there is no server-rendered version to fall back to.
             javaScriptEnabled = true
-            // The site keeps its own state — including its session — in web storage.
+            // The site keeps its own state — including its session — in web storage. Web SQL, which
+            // `databaseEnabled` used to switch on, is gone from Chromium: the setting has done nothing
+            // since API 21 and is deprecated since 30, so it is not set rather than set and ignored.
             domStorageEnabled = true
-            databaseEnabled = true
             // One WebView: a target="_blank" link continues in this view instead of spawning another.
             setSupportMultipleWindows(false)
             javaScriptCanOpenWindowsAutomatically = false
@@ -343,25 +343,14 @@ class BrowserEngine(
 
     /**
      * The window came back. Deliberately *not* a reload: a reload would throw away the conversation
-     * and interrupt whatever the site is still sending. The only case that reloads is the extreme one
-     * where memory pressure had already destroyed the view.
+     * and interrupt whatever the site is still sending. Nothing in this class destroys the view while
+     * the app is hidden any more, so there is nothing to recover here; the one path that does destroy
+     * it — a lost renderer — reloads through its own event, not through this one.
      */
     fun onHostStart() {
         network.start()
         dispatch(BrowserEvent.Foregrounded)
-        when {
-            !loadedOnce -> openHome()
-            releasedByMemory -> {
-                releasedByMemory = false
-                AppLog.d("reloading after a memory-driven release")
-                // Load first, then speak: a new navigation clears the previous notice, so the order
-                // decides whether the user ever reads this. The claim is only the one this class can
-                // verify — that it released the window and is loading it again.
-                load(_browser.value.url)
-                say("This window was released to give memory back, so the page is loading again. Your " +
-                    "sign-in and the site's own data were left alone.")
-            }
-        }
+        if (!loadedOnce) openHome()
     }
 
     /**
@@ -378,30 +367,30 @@ class BrowserEngine(
     }
 
     /**
-     * Graduated memory response. Ordinary pressure gives back cached resources; the last level gives
-     * up the view entirely, because losing a page beats being killed while holding it. Both branches
-     * leave cookies, web storage and the site's session untouched — that is what makes the recovery a
-     * re-render rather than a sign-in.
+     * The system asking for memory back. One tier, because that is all the platform still offers:
+     * `TRIM_MEMORY_COMPLETE`, `TRIM_MEMORY_MODERATE` and the `RUNNING_*` levels were deprecated in
+     * API 35 with the note that apps are **not notified of them since API 34**. An earlier version of
+     * this method released the WebView at `TRIM_MEMORY_COMPLETE`; that branch could never run on a
+     * device this app ships to, and a branch that never runs is worse than no branch because it makes
+     * the documentation a promise nobody keeps.
+     *
+     * So: at `TRIM_MEMORY_BACKGROUND` the HTTP cache goes back — the biggest single reclaimable block a
+     * loaded SPA holds, and the page refetches it — and nothing else does. The view is destroyed only
+     * when it is actually gone ([onRendererGone]) or when the host is finishing ([shutdown]). Under real
+     * pressure Chromium's renderer is what the system reclaims anyway, and that path already rebuilds
+     * the window once and says so.
+     *
+     * `WebView.freeMemory()` is not called: it is deprecated with no public replacement, and
+     * `clearCache(true)` is the part that still describes something real. Cookies and web storage are
+     * never touched, because they are what turns a recovery into a re-render rather than a sign-in.
      */
     fun onLowMemory(level: Int) {
+        if (level < ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) return
         runCatching { CookieManager.getInstance().flush() }
         val webView = _view.value ?: return
-        when {
-            level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
-                AppLog.w("giving up the web view at TRIM_MEMORY_COMPLETE")
-                destroyView()
-                releasedByMemory = true
-            }
-
-            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
-                // Cached resources are the biggest single chunk a loaded SPA holds, and the page can
-                // refetch them on its own; freeMemory() releases the renderer's caches without a reload.
-                runCatching { webView.clearCache(true) }
-                runCatching { webView.freeMemory() }
-            }
-
-            else -> Unit
-        }
+        runCatching { webView.clearCache(true) }
+        AppLog.d("released the HTTP cache at trim level $level")
+    }
     }
 
     fun destroyView() {

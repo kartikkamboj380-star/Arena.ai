@@ -56,9 +56,10 @@ rather than what a user installs from a release build.
 | Event | Action | Not done |
 | --- | --- | --- |
 | `onStop` | `CookieManager.flush()`, unregister the network callback | `pauseTimers()` — it would freeze the response being streamed; `pause()` — it is `protected`, and drawing already stops when the view is not visible; `destroy()` |
-| `onStart` | register the network callback | any reload, except the one case below |
-| `TRIM_MEMORY_UI_HIDDEN` / `BACKGROUND` | `clearCache(true)` then `freeMemory()` — the HTTP cache is the biggest reclaimable chunk a loaded SPA holds and the page refetches it | dropping cookies or web storage |
-| `TRIM_MEMORY_COMPLETE` | release the view, remember the URL, and on the next foreground load it again, saying so in one notice line | `System.gc()` |
+| `onStart` | register the network callback; load the home URL only on the very first start | any reload — nothing destroys the view while hidden, so there is nothing to recover from |
+| `TRIM_MEMORY_BACKGROUND` (40) | `clearCache(true)` — the HTTP cache is the biggest reclaimable chunk a loaded SPA holds and the page refetches it | dropping cookies or web storage; `freeMemory()`, deprecated with no replacement |
+| `TRIM_MEMORY_UI_HIDDEN` (20) | nothing | clearing the cache on every app switch would make returning slower to save memory that was not asked for |
+| the levels above `BACKGROUND` | nothing available to do — `TRIM_MEMORY_MODERATE` (60) and `TRIM_MEMORY_COMPLETE` (80) are deprecated in API 35 with "apps are not notified of this level since API level 34", so a branch keyed on them is dead code | pretending the app can outguess the killer |
 | `onRenderProcessGone` | discard the dead view, reducer decides: reload once automatically, then ask | looping a reload on a device that is out of memory |
 | Activity finishing | `shutdown()`, and the two Activity hooks are nulled in `onDestroy` so nothing holds a window | — |
 
@@ -67,8 +68,9 @@ it cannot pin an Activity — the standard leak in a "keep the WebView alive" de
 the destroy path because a dead renderer's `destroy()` can throw, and a crash while recovering from a
 crash is the worst possible outcome on a low-memory device.
 
-No `System.gc()`, `Runtime.gc()` or `runFinalizationOnExit` anywhere. `WebView.freeMemory()` is the
-documented request for the browser's own caches; a forced full GC stops the world to guess.
+No `System.gc()`, `Runtime.gc()` or `runFinalizationOnExit` anywhere, and no `WebView.freeMemory()`
+either: it is deprecated with no public replacement, so `clearCache(true)` is the only cache request this
+app makes. A forced full GC stops the world to guess.
 
 ## 5. Startup
 

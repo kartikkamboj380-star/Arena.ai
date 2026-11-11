@@ -60,9 +60,10 @@ cookies are flushed so a kill cannot lose a sign-in. What Android then does with
 process is not the app's choice — [docs/BACKGROUND.md](docs/BACKGROUND.md) states exactly which cases
 work, which degrade, and what could not be verified.
 
-**Memory.** One renderer, one WebView, `offscreenPreRaster` left off, caches given back under pressure
-and the view itself only at `TRIM_MEMORY_COMPLETE`. No `System.gc()`, no preload, no second hidden
-browser instance. [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+**Memory.** One renderer, one WebView, `offscreenPreRaster` left off, and the HTTP cache given back at
+`TRIM_MEMORY_BACKGROUND` — the only pressure level Android still delivers since API 34, which is also
+why the app does not pretend to have a finer-grained plan. No `System.gc()`, no preload, no second
+hidden browser instance. [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 **Sign-in.** The site's own form, in this window, with third-party cookies enabled for that window only
 so the provider's redirect chain can complete. No user-agent spoofing, no cookie extraction, no

@@ -1,7 +1,6 @@
 package com.kartikkamboj.arena
 
 import android.app.Application
-import android.content.ComponentCallbacks2
 import com.kartikkamboj.arena.core.AppLog
 import com.kartikkamboj.arena.di.AppContainer
 
@@ -22,16 +21,15 @@ class ArenaApplication : Application() {
     }
 
     /**
-     * On a 3 GB phone this is the system asking for memory back before it kills the process. The
-     * response is graduated in [BrowserEngine.onLowMemory]: caches first, the view only at the last
-     * level. Session material is never touched, because the site's own cookies and storage are what
-     * make a recovery a re-render rather than a sign-in.
+     * On a 3 GB phone this is the system asking for memory back before it kills the process. The level
+     * is passed through untouched and [BrowserEngine.onLowMemory] decides what it means, because since
+     * API 34 only some of these levels are still delivered — deciding the threshold here would encode a
+     * distinction the platform no longer makes. Session material is never touched: the site's own
+     * cookies and storage are what make a recovery a re-render rather than a sign-in.
      */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
-            container.engine.onLowMemory(level)
-        }
+        container.engine.onLowMemory(level)
     }
 
     override fun onTerminate() {

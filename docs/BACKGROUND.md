@@ -14,7 +14,7 @@ a `WebView` lives inside a process Android is free to freeze or kill.
 | No reload in `onStart` | returning to the app shows what you left, not a spinner. The reducer has no branch that reloads on foregrounding — see `BrowserReducerTest` |
 | `CookieManager.flush()` on stop | the site's session is on disk before the process is a candidate for reclamation |
 | No `stopWithTask` tricks, no `excludeFromRecents`, `singleTask` + `onNewIntent` | the app behaves like the one task it is; a tapped arena.ai link continues in the same view |
-| `onTrimMemory` graduated: caches → `freeMemory()` → view | pressure is answered before the low-memory killer decides for us |
+| `onTrimMemory` → HTTP cache released at `TRIM_MEMORY_BACKGROUND` | pressure is answered while the answer is still cheap; nothing else is, because the finer levels stopped being delivered in API 34 |
 
 ## What is *not* done, and why
 
@@ -43,7 +43,7 @@ a `WebView` lives inside a process Android is free to freeze or kill.
 | Screen off briefly, device not idle | process cached; the network stack may keep receiving, and on returning you see whatever arrived | platform |
 | Screen off long / Doze | the process is frozen: no JavaScript, no socket reads. Anything in flight is suspended | platform |
 | User swipes the app from Recents | the task is finished; the process is expected to end. Next launch loads the site again — signed in, because the cookies and web storage stayed on disk | platform |
-| Low memory, `TRIM_MEMORY_COMPLETE` | the app gives up the view deliberately, keeping cookies and storage; the next foreground reloads the last URL | app |
+| Low memory, `TRIM_MEMORY_BACKGROUND` | the HTTP cache is released; the view is kept, because interrupting a page to save memory nobody has asked for yet is a worse trade than a refetch | app |
 | Renderer killed by the system | `onRenderProcessGone` → view discarded, a new one reloads the same URL once; if it happens again the app asks instead of looping | app |
 | Process killed while backgrounded | on relaunch the site starts from the URL the shell remembered. The page's mid-flight request is gone from the client's point of view | platform |
 
