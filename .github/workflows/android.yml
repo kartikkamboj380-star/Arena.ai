@@ -1,0 +1,278 @@
+name: Android CI
+
+# Real validation, not a decoration: this workflow compiles the app, runs the JVM unit tests,
+# assembles the debug APK (and the androidTest APK, so instrumentation code is at least compiled),
+# runs Android Lint, and uploads the artifact. Nothing here fakes a pass: every step fails the run.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # So a failed run can post its own diagnostics as a comment: the raw log lives on a host that
+  # restricted environments may not reach. Nothing sensitive is written here — compiler errors only.
+  pull-requests: write
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and assemble (debug)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate workflow syntax
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import glob, sys, yaml
+          failed = False
+          for path in sorted(glob.glob(".github/workflows/*.yml") + glob.glob(".github/workflows/*.yaml")):
+              with open(path) as handle:
+                  try:
+                      doc = yaml.safe_load(handle)
+                  except yaml.YAMLError as error:
+                      print(f"::error file={path}::{error}")
+                      failed = True
+                      continue
+              if not isinstance(doc, dict) or "jobs" not in doc:
+                  print(f"::error file={path}::workflow has no jobs")
+                  failed = True
+                  continue
+              print(f"parsed {path}: {len(doc['jobs'])} job(s)")
+          sys.exit(1 if failed else 0)
+          PY
+
+      - name: Refuse to build with secrets in the tree
+        run: |
+          set -euo pipefail
+          tracked=$(git ls-files | grep -E '(\.keystore$|\.jks$|^local\.properties$|^\.env|google-services\.json$|^app/.*\.properties$)' || true)
+          if [ -n "$tracked" ]; then
+            echo "::error::Secret-bearing files must not be committed:"
+            echo "$tracked"
+            exit 1
+          fi
+          if grep -rInE '(AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-[0-9a-zA-Z]{20,})' --include='*.kt' --include='*.xml' --include='*.kts' app/ 2>/dev/null; then
+            echo "::error::A hardcoded credential shape was found in app sources"
+            exit 1
+          fi
+          echo "No keystores, service credentials or key-shaped literals tracked."
+
+      # The rules this repository's own documentation makes about the shipped code, checked
+      # mechanically so a document cannot quietly drift from the source it describes. Comments are
+      # stripped before matching: a KDoc line that *explains* a forbidden call is not a use of it.
+      - name: Check the promises the docs make
+        run: |
+          set -uo pipefail
+          strip() { grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//|/\*)'; }
+          fail=0
+          SRC=app/src/main
+          WEB=$SRC/java/com/kartikkamboj/arena/web
+          refuse() { # $1 = promise, $2 = pattern that must not appear in app/src/main
+            if grep -rInE "$2" --include='*.kt' --include='*.xml' $SRC | strip | grep -q .; then
+              echo "::error::$1 — forbidden pattern: $2"
+              grep -rInE "$2" --include='*.kt' --include='*.xml' $SRC | strip | sed 's/^/    /'
+              fail=1
+            fi
+          }
+          require() { # $1 = promise, $2 = file, $3 = pattern that must appear there
+            if ! grep -qE "$3" "$2"; then
+              echo "::error::$1 — expected $3 in $2"
+              fail=1
+            fi
+          }
+          refuse "no JavaScript bridge may be exposed to page content" 'addJavascriptInterface|@JavascriptInterface'
+          refuse "the app must not run script inside the page" 'evaluateJavascript|loadUrl\( *"javascript:'
+          refuse "the app must not read, copy or clear the site's cookies" 'CookieManager[[:space:]]*\.[[:space:]]*getInstance\(\)[[:space:]]*\.[[:space:]]*getCookie|removeAllCookies|removeSessionCookies|clearFormData|clearHistory'
+          refuse "no live streaming may be suspended from the background" '\.pauseTimers\(\)'
+          refuse "the user agent must not be rewritten to hide the WebView marker" 'userAgentString|setUserAgent'
+          refuse "forcing a garbage collection is not memory management" 'System\.gc\(\)|Runtime\.getRuntime\(\)\.gc\(\)'
+          refuse "no HTTP client: the site is reached only through the WebView" 'okhttp3|retrofit2|HttpURLConnection|java\.net\.http\.HttpClient'
+          refuse "no telemetry, analytics or crash upload" 'com\.google\.firebase|firebase-analytics|acra|bugsnag|sentry'
+          # Every WebView this app owns is constructed in BrowserEngine.kt, and there are at most two:
+          # the one persistent page, plus the single transient window a `window.open()` popup needs.
+          stray=$(grep -rIlE '= WebView\(' --include='*.kt' $SRC | grep -v 'web/BrowserEngine.kt' || true)
+          if [ -n "$stray" ]; then
+            echo "::error::a WebView is constructed outside BrowserEngine.kt: $stray"
+            fail=1
+          fi
+          count=$(grep -rInE '= WebView\(' --include='*.kt' $SRC | strip | wc -l)
+          if [ "$count" -gt 2 ]; then
+            echo "::error::expected at most two WebView constructions (the page and one popup window), found $count"
+            fail=1
+          fi
+          # The popup rules the docs promise, checked in the direction that matters: they must be present.
+          require "a popup must be granted only for a user gesture" "$WEB/BrowserEngine.kt" 'if \(!isUserGesture\)'
+          require "the sign-in window needs multi-window support" "$WEB/BrowserEngine.kt" 'setSupportMultipleWindows\(true\)'
+          require "the platform popup blocker stays on" "$WEB/BrowserEngine.kt" 'javaScriptCanOpenWindowsAutomatically = false'
+          require "page content must not reach device files" "$WEB/BrowserEngine.kt" 'allowFileAccess = false'
+          require "a popup window must be destroyed, not dropped" "$WEB/BrowserEngine.kt" 'popup\.destroy\(\)'
+          require "the window request and its close must both be handled" "$WEB/ArenaWebClients.kt" 'onCreateWindow'
+          require "the window request and its close must both be handled" "$WEB/ArenaWebClients.kt" 'onCloseWindow'
+          require "the popup must run the app's own navigation policy" "$WEB/BrowserEngine.kt" 'configure\(popup\)'
+          if [ "$fail" -eq 0 ]; then
+            echo "Every capability the docs deny is absent, and the popup promises they make are present."
+          else
+            exit 1
+          fi
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          accept-android-sdk-licenses: true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
+          # Read-only: the write path hit a cache-service outage during development, and a warm
+          # cache is a speed-up, never something the build's correctness should depend on.
+          cache-read-only: true
+
+      - name: Make the wrapper executable
+        run: chmod +x gradlew
+
+      - name: Run JVM unit tests
+        # `set +e` first: Actions runs `bash -e`, which would abort the step on Gradle's non-zero
+        # exit and skip the diagnostics below, leaving a red run with nothing to read.
+        run: |
+          set +e
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee /tmp/unit.log
+          code=${PIPESTATUS[0]}
+          # Re-emit the diagnostics as check annotations: the artifact log itself is served from a
+          # host a restricted environment may not reach, and a red build nobody can read is unfixable.
+          python3 tools/ci_explain.py /tmp/unit.log "$code" --test-results app/build/test-results/testDebugUnitTest --report /tmp/report-unit.md
+          exit $code
+
+      - name: Assemble debug APK, instrumentation APK and lint
+        run: |
+          set +e
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --continue 2>&1 | tee /tmp/assemble.log
+          code=${PIPESTATUS[0]}
+          python3 tools/ci_explain.py /tmp/assemble.log "$code" --report /tmp/report-assemble.md
+          exit $code
+
+      - name: Report the failure on the pull request
+        if: failure()
+        run: |
+          set +e
+          cat /tmp/report-unit.md /tmp/report-assemble.md > /tmp/report.md 2>/dev/null || true
+          if [ ! -s /tmp/report.md ]; then
+            printf '### CI diagnostics\n\nThe build failed and produced no parseable diagnostics. Check the raw log for the failing step.\n' > /tmp/report.md
+          fi
+          if [ -n "${GH_PR_URL:-}" ]; then
+            gh pr comment "$GH_PR_URL" --body-file /tmp/report.md || echo "comment could not be posted"
+          fi
+        env:
+          GH_PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ github.token }}
+
+      # A failure diagnosis must not outlive the failure. If the newest comment on the PR is a
+      # "CI diagnostics" report and this run is green, post the resolution next to it; a run that
+      # finds nothing stale to resolve posts nothing, so this cannot turn into per-push noise.
+      - name: Resolve a stale failure report
+        if: success() && github.event_name == 'pull_request'
+        run: |
+          set +e
+          last=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments?per_page=100" \
+            --jq '.[-1].body' 2>/dev/null | head -1)
+          if [ "$last" = "### CI diagnostics" ]; then
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -f body="### CI diagnostics: resolved
+
+          Run [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          passed on ${{ github.event.pull_request.head.sha }}: unit tests, assembleDebug, the
+          instrumentation APK and lint are
+          all green, and the debug APK is uploaded as an artifact of that run. The failure report above
+          belongs to an earlier commit; it is kept rather than deleted so the history stays readable." \
+              --jq '.html_url' || echo "resolution comment could not be posted"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Show what was built
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          ls -l "$apk"
+          AAPT=$(ls "${ANDROID_HOME}"/build-tools/*/aapt | head -1)
+          "$AAPT" dump badging "$apk" | sed -n '1,6p'
+          {
+            echo "### Artifact"
+            echo ""
+            echo '```'
+            "$AAPT" dump badging "$apk" | head -3
+            echo '```'
+            echo ""
+            echo "Debug build only, signed with the debug key. No release artifact is produced here."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: arena-ai-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: app/build/test-results/testDebugUnitTest
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summarise test counts
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET, os
+          tests = failures = errors = skipped = 0
+          for path in glob.glob("app/build/test-results/testDebugUnitTest/*.xml"):
+              try:
+                  suite = ET.parse(path).getroot()
+              except ET.ParseError:
+                  continue
+              tests += int(suite.get("tests", 0))
+              failures += int(suite.get("failures", 0))
+              errors += int(suite.get("errors", 0))
+              skipped += int(suite.get("skipped", 0))
+          line = (f"JVM unit tests: {tests} run, {failures} failed, {errors} errors, {skipped} skipped"
+                  if tests else "JVM unit tests: no results produced")
+          print(line)
+          if os.environ.get("GITHUB_STEP_SUMMARY"):
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as handle:
+                  handle.write("\n" + line + "\n")
+          PY

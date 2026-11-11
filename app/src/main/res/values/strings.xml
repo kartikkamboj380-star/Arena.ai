@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Arena</string>
+    <string name="intent_open_arena_link">Open in Arena</string>
+</resources>

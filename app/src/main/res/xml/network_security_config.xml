@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      HTTPS only. Only the platform trust anchor is accepted: user-added CAs (a proxy or a
+      corporate root) are deliberately not trusted, so a session cookie can never be captured
+      by a man-in-the-middle with a locally installed certificate.
+    -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <debug-overrides>
+        <trust-anchors>
+            <!-- Only ever used by the debug variant, for local inspection with a proxy. -->
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

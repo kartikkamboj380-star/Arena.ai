@@ -1,0 +1,7 @@
+<resources>
+    <!-- Warm paper for the light theme; keep in step with ui/theme/Color.kt. -->
+    <color name="arena_window">#F6F3EF</color>
+    <color name="arena_splash">#F6F3EF</color>
+    <color name="arena_accent">#A64E2C</color>
+    <color name="arena_ic_launcher_background">#141312</color>
+</resources>
