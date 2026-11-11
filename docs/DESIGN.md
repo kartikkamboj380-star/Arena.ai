@@ -96,6 +96,25 @@ second, hand-drawn splash screen to keep in sync.
   name the observable fact; recovery lines name what the app cannot do; the retry button is disabled
   when retrying cannot help (`WebFailure.retryable`).
 
+## A window the page opens
+
+When the page calls `window.open()` — which is how a Google sign-in popup arrives — the shell shows a
+bottom sheet, not a dialog and not a silent swap of what was on screen:
+
+- the sheet occupies the bottom 92 %, starting 44 dp down, so the site stays visible above it and the
+  user can see that something was *added* rather than replaced;
+- the scrim is `ArenaPalette.Scrim` and nothing else: no blur, no frost, no animation;
+- the header strip is `surfaceHigh` with one hairline of structure from the corner radius alone
+  (16 dp top corners, `clip`, no border), holding one muted `labelMedium` sentence and **Close**;
+- the sentence names the host the window is really on, read from the window itself. This is the design's
+  one security-relevant affordance: an unlabelled second page over the site is exactly what a
+  look-alike login wants;
+- ink, accent and the one red behave as everywhere else. A failure inside that window is one line of
+  text, never a `error`-coloured panel over the site.
+
+This does not contradict "no rounded-corner app frame around the WebView": that rule forbids decorating
+the page itself. Here the rounding belongs to the sheet, which is chrome the app owns.
+
 ## Deliberately not built
 
 A theme switcher (the site has appearance settings); accent-colour settings; custom fonts; a

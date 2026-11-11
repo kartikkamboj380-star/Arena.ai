@@ -104,7 +104,7 @@ re-attaches cleanly while an ordinary recomposition just re-attaches the same on
 ## Data flow for "I sent a message"
 
 1. You tap the site's own send button. The app sees none of this: no listener, no bridge, no interception.
-2. The site streams its answer over its own connection, rendered by the one WebView.
+2. The site streams its answer over its own connection, rendered by the app's persistent WebView.
 3. The app's involvement: keep the view alive, keep drawing (or, when hidden, keep *not* pausing
    JavaScript timers), and update `BrowserState` only if the page tells it something changed.
 4. If the renderer dies mid-answer, `onRenderProcessGone` → `destroyView()` → reducer → a fresh view

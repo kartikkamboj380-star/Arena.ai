@@ -158,7 +158,7 @@ those two apart: `ux_mode`/`origin` present means a popup request, while a bare
 | Reach the sign-in form | nothing special: the site's own account control is a normal link in the page |
 | Stay on the site's auth service | any `*.arena.ai` over https is the site — including `auth.arena.ai` |
 | Follow the provider's redirect | the hosts Google publishes, plus (mid-chain only) anything under `PROVIDER_DOMAINS` |
-| Let the redirect chain work | `CookieManager.setAcceptThirdPartyCookies(view, true)` — scoped to this one view; the global default is untouched |
+| Let the redirect chain work | `CookieManager.setAcceptThirdPartyCookies(view, true)` — per view, so it covers the popup window when a popup is the flow; the global default is untouched |
 | Give a popup sign-in a window to reply into | `setSupportMultipleWindows(true)` + `onCreateWindow`, for a user gesture only, one at a time, same `configure()`, same policy, same per-view cookies |
 | Tear that window down from every direction | `onCloseWindow`, Back, a refused/handed-off navigation, `onRenderProcessGone`, `destroyView()` and `shutdown()` all close it; `onLowMemory` clears its cache too |
 | React to a refusal | a 4xx on the main frame while on a provider host → `PagePhase.AUTH_REFUSED` → the panel that explains it and names the alternative |
