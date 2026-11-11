@@ -95,7 +95,7 @@ class BrowserReducerTest {
         val failed = reduce(ready, BrowserEvent.LoadFailed(home, "The connection dropped part-way through loading."))
         assertEquals(PagePhase.FAILED, failed.state.phase)
         assertTrue(failed.state.usable)
-        assertEquals("This page did not load.", failed.effects.first())
+        assertEquals(BrowserEffect.Say("This page did not load."), failed.effects.first())
     }
 
     @Test

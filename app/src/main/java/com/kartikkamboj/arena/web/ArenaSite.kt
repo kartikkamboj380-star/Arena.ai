@@ -79,7 +79,7 @@ object ArenaSite {
     private fun fromDisposition(header: String?): String? {
         val value = header?.takeIf { it.isNotBlank() } ?: return null
         // filename*=UTF-8''name  — the charset-extended form wins when both are present.
-        val extended = Regex("""filename\*\s*=\s*([^;'])''([^;]+)""", RegexOption.IGNORE_CASE)
+        val extended = Regex("""filename\*\s*=\s*([^;']+?)''([^;]+)""", RegexOption.IGNORE_CASE)
             .find(value)?.groupValues?.getOrNull(2)
         val plain = Regex("""filename\s*=\s*"?([^";]+)"?""", RegexOption.IGNORE_CASE)
             .find(value)?.groupValues?.getOrNull(1)
