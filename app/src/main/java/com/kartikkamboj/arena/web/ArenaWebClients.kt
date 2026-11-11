@@ -58,7 +58,7 @@ class ArenaWebViewClient(private val engine: BrowserEngine) : WebViewClient() {
     }
 
     /** An SPA pushing history changes what Back can do; the shell's affordance follows that, not a guess. */
-    override fun onDoUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+    override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
         engine.dispatch(BrowserEvent.CanGoBackChanged(view.canGoBack()))
     }
 
@@ -137,11 +137,18 @@ class ArenaWebChromeClient(private val engine: BrowserEngine) : WebChromeClient(
      */
     override fun onPermissionRequest(request: PermissionRequest) {
         runCatching { request.deny() }
-        AppLog.d("denied a device-permission request from ${ParsedUrl.of(request.origin)?.host ?: "a page"}")
+        // getOrigin() is a Uri on the device and the app has no reason to look inside it beyond the
+        // host, which is all this line records.
+        val host = request.origin?.host ?: "a page"
+        AppLog.d("denied a device-permission request from $host")
+        val asked = if (request.resources.any { it == PermissionRequest.RESOURCE_VIDEO_CAPTURE }) {
+            "camera"
+        } else {
+            "microphone"
+        }
         engine.say(
-            "That page asked for the " +
-                (if (request.resources.any { it == Permission.RESOURCE_VIDEO_CAPTURE }) "camera" else "microphone") +
-                ", which this app does not request. Open arena.ai in your browser to use it.",
+            "That page asked for the $asked, which this app does not request. " +
+                "Open arena.ai in your browser to use it.",
         )
     }
 }

@@ -55,8 +55,8 @@ rather than what a user installs from a release build.
 
 | Event | Action | Not done |
 | --- | --- | --- |
-| `onStop` | `WebView.pause()` (drawing/layout only), `CookieManager.flush()`, unregister the network callback | `pauseTimers()` — it would freeze the response being streamed; `destroy()` |
-| `onStart` | `resume()`, register the network callback | any reload, except the one case below |
+| `onStop` | `CookieManager.flush()`, unregister the network callback | `pauseTimers()` — it would freeze the response being streamed; `pause()` — it is `protected`, and drawing already stops when the view is not visible; `destroy()` |
+| `onStart` | register the network callback | any reload, except the one case below |
 | `TRIM_MEMORY_UI_HIDDEN` / `BACKGROUND` | `clearCache(true)` then `freeMemory()` — the HTTP cache is the biggest reclaimable chunk a loaded SPA holds and the page refetches it | dropping cookies or web storage |
 | `TRIM_MEMORY_COMPLETE` | release the view, remember the URL, and on the next foreground load it again, saying so in one notice line | `System.gc()` |
 | `onRenderProcessGone` | discard the dead view, reducer decides: reload once automatically, then ask | looping a reload on a device that is out of memory |

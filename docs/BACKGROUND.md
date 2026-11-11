@@ -10,7 +10,7 @@ a `WebView` lives inside a process Android is free to freeze or kill.
 | --- | --- |
 | `android:configChanges` for orientation, screen size/layout, smallest screen size, density, keyboard, navigation, UI mode, locale, layout direction, font scale | rotating or folding the phone does not recreate the Activity, so there is no reload to survive |
 | The `WebView` is owned by `AppContainer` (application scope), not the Activity | even a real recreation re-attaches the same live view instead of building a new page |
-| `onStop` → `pause()`, never `pauseTimers()` | drawing and layout stop for a hidden page; JavaScript and the open connection keep running while the process is allowed to |
+| `onStop` does nothing to the page — and specifically never calls `pauseTimers()` | JavaScript and the open connection keep running while the process is allowed to; `WebView.pause()` is `protected`, so nothing is suspended, and drawing is already stopped by the view not being visible |
 | No reload in `onStart` | returning to the app shows what you left, not a spinner. The reducer has no branch that reloads on foregrounding — see `BrowserReducerTest` |
 | `CookieManager.flush()` on stop | the site's session is on disk before the process is a candidate for reclamation |
 | No `stopWithTask` tricks, no `excludeFromRecents`, `singleTask` + `onNewIntent` | the app behaves like the one task it is; a tapped arena.ai link continues in the same view |

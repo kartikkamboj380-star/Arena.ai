@@ -30,7 +30,6 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -147,18 +146,12 @@ private fun LoadBar(phase: PagePhase, progress: Int, accent: Color) {
                 modifier = Modifier.fillMaxSize(),
                 color = accent,
                 trackColor = Color.Transparent,
-                strokeCap = StrokeCap.Square,
-                gapSize = 0.dp,
-                drawStopIndicator = {},
             )
         } else {
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxSize(),
                 color = accent,
                 trackColor = Color.Transparent,
-                strokeCap = StrokeCap.Square,
-                gapSize = 0.dp,
-                drawStopIndicator = {},
             )
         }
     }

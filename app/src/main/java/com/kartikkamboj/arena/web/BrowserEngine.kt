@@ -349,7 +349,6 @@ class BrowserEngine(
     fun onHostStart() {
         network.start()
         dispatch(BrowserEvent.Foregrounded)
-        runCatching { _view.value?.resume() }
         when {
             !loadedOnce -> openHome()
             releasedByMemory -> {
@@ -366,14 +365,14 @@ class BrowserEngine(
     }
 
     /**
-     * The window went away. Nothing here pauses JavaScript timers, destroys the view or reloads:
-     * `WebView.pauseTimers()` would stop the streaming response the user asked us to protect, so it
-     * is never called. Cookies are flushed because that is the one thing that must survive being
-     * killed, and drawing is paused so a hidden page costs nothing to paint.
+     * The window went away. Nothing is paused and nothing is destroyed: `WebView.pauseTimers()` would
+     * stop the streaming response the user asked us to protect, and `WebView.pause()` — the
+     * drawing-only variant — is `protected` on the platform class, so calling it would mean subclassing
+     * the view for a saving the visibility system already makes. Cookies are flushed because that is
+     * the one thing that must survive being killed.
      */
     fun onHostStop() {
         dispatch(BrowserEvent.Backgrounded)
-        runCatching { _view.value?.pause() }
         runCatching { CookieManager.getInstance().flush() }
         network.stop()
     }

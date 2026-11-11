@@ -42,24 +42,41 @@ object AppLog {
     fun diagnose(error: Throwable): String =
         redact("${error.javaClass.simpleName}: ${error.message.orEmpty()}").take(160)
 
+    /**
+     * The rules, as raw strings so a `\s` in one of them means the regex class `\s` and not "a
+     * literal backslash followed by s". That distinction mattered: three of these patterns were
+     * inherited from an earlier version of this file with `\\s` inside a raw string, where they match
+     * nothing, and the redaction they promised was decorative. `AppLogTest` now pins each shape.
+     */
     private val patterns: List<Pair<Regex, String>> = listOf(
-        // Set-Cookie / Cookie headers and anything cookie-shaped.
-        Regex("""(?i)(set-cookie|cookie)\s*[:=]\s*[^\r\n]+""") to "$1=<redacted>",
-        // A header whose value is "<scheme> <secret>": the generic rule below matches
-        // "Authorization: Bearer" and stops there, which would leave the token itself in the log.
-        Regex("""(?i)(authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|token)?\s*[A-Za-z0-9\-._~+/]{4,}""") to "$1=<redacted>",
-        // Bearer / basic auth and long opaque tokens.
-        Regex("""(?i)(bearer|basic|token|api[-_ ]?key|authorization|session|sid)\s*[:=]\s*[A-Za-z0-9\-._~+/]{6,}""") to "$1=<redacted>",
-        // JWTs.
-        Regex("""eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}""") to "<jwt>",
-        // E-mail addresses (identifiers, but they still do not belong in logs).
-        Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "<email>",
-        // Quoted values behind any key that looks like a credential, including the JSON shapes a
-        // server error can echo back: "refresh_token": "…", "sessionKey": "…", "apiKey": "…".
-        Regex("\"[A-Za-z_]*(?:pass(?:word)?|secret|code|otp|token|credential|session|sid|key|auth)[A-Za-z_]*\"\\s*:\\s*\"[^\"]*\"", RegexOption.IGNORE_CASE) to "\"<key>\":\"<redacted>\"",
-        // Unquoted `key: value` / `key=value` pairs with the same key shapes, for log lines the
-        // platform writes itself (a URL query, a header dump, an exception message).
-        Regex("(?i)\b[A-Za-z_]*(?:pass(?:word)?|secret|code|otp|token|credential|session|sid|apikey|api_key|auth)[A-Za-z_]*\s*[:=]\s*[A-Za-z0-9\\-._~+/]{4,}") to "<key>=<redacted>", 
+        // Set-Cookie / Cookie headers, and anything else cookie-shaped on one line.
+        Regex("""(?:set-cookie|cookie)\s*[:=]\s*[^\r\n]+""", RegexOption.IGNORE_CASE)
+            to "<cookie-redacted>",
+
+        // "<scheme> <secret>" after an auth header, so the token itself goes rather than its label.
+        Regex("""(?:proxy-)?authorization\s*[:=]\s*(?:bearer|basic|token)?\s*[A-Za-z0-9\-._~+/]{4,}""", RegexOption.IGNORE_CASE)
+            to "<auth-redacted>",
+
+        // Bearer / basic / long opaque tokens behind a named key.
+        Regex("""(bearer|basic|token|api[-_ ]?key|authorization|session|sid)\s*[:=]\s*"?[A-Za-z0-9\-._~+/]{6,}""", RegexOption.IGNORE_CASE)
+            to "$1=<redacted>",
+
+        // Anything that looks like a JWT, wherever it appears.
+        Regex("""eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}""")
+            to "<jwt>",
+
+        // E-mail addresses: identifiers, and still not something to leave in a log buffer.
+        Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
+            to "<email>",
+
+        // Quoted values behind any credential-shaped key, i.e. "refresh_token": "…".
+        Regex(""""[A-Za-z_]*(?:pass(?:word)?|secret|code|otp|token|credential|session|sid|key|auth)[A-Za-z_]*"\s*:\s*"[^"]*"""", RegexOption.IGNORE_CASE)
+            to "\"<key>\":\"<redacted>\"",
+
+        // The same key shapes unquoted, for the lines the platform writes (a query string, a
+        // header dump, an exception message).
+        Regex("""[A-Za-z_]*(?:pass(?:word)?|secret|code|otp|token|credential|session|sid|apikey|api_key|auth)[A-Za-z_]*\s*[:=]\s*[A-Za-z0-9\-._~+/%]{4,}""", RegexOption.IGNORE_CASE)
+            to "<key>=<redacted>",
     )
 
     fun redact(input: String): String {

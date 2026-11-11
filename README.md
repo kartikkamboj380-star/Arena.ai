@@ -27,7 +27,7 @@ The consequences are deliberate and worth reading before you judge the app:
 | --- | --- |
 | Render `https://arena.ai` inside the system bars, light or dark | Store your prompt, chat, model list or history anywhere |
 | Keep the page alive through rotation and background | Sign you in, or read what the site's session is |
-| Pause and resume as Android asks, never reload on its own | Guarantee a streamed answer survives a screen lock |
+| Suspend nothing while hidden, so a response can keep arriving | Guarantee a streamed answer survives a screen lock |
 | Say "the site did not load" and why | Claim a browser sign-in transferred into this app |
 | Hand non-arena.ai links to your browser | Intercept, fill or inspect anything on the page |
 | Send files the page asks for, via the system picker | Upload, transcode or look inside those files |
