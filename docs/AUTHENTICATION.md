@@ -134,6 +134,14 @@ refused, which is the browser default and the platform's own advice. The window 
 of the navigation policy (its own child `ArenaWebViewClient`) and gets its own third-party-cookie grant —
 that grant is what row 2 was always meant to cover and could not reach while there was only one view.
 
+**Why the granted path is not a unit test.** `WebView.WebViewTransport` — the object the host fills with
+the new view — is an *inner* class of `WebView` that only the framework constructs; a test cannot make one
+("Constructor of the inner class can only be called with a receiver of the containing class"). So the
+granted path is pinned where pinning is possible: the CI promise step requires the transport to be wired,
+`configure(popup)` to be what builds the window, and `popup.destroy()` to exist; the refusal paths, which
+need no transport, are instrumentation tests; and the visible result is device item 4c in
+[TESTING.md](TESTING.md). That is a real limit of `android.webkit`, stated rather than worked around.
+
 **The falsifiable part, for the device run.** If the logcat line `popup window created` appears when
 pressing *Continue with Google* and the sign-in still fails, this app is not in the popup case and the
 remaining candidate is row 3 (the redirect flow meeting the embedded-agent policy) — in which case no
