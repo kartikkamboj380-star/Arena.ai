@@ -6,11 +6,15 @@ costs memory on exactly that device.
 
 ## 1. One browser, one process
 
-- Exactly one `WebView` is ever constructed, in `BrowserEngine.ensureView()`, which returns the existing
-  instance. There is no preview view, no warm-up view, no throwaway stub for a popup, no headless
-  second instance. The rule is enforced structurally: `WebView(` appears once in `app/src/main`.
-- `setSupportMultipleWindows(false)` means a `target="_blank"` link continues in the same view, so the
-  app never has to create a window for it.
+- Exactly one `WebView` is *kept*: `BrowserEngine.ensureView()` returns the instance it already made, and
+  there is no preview view, no warm-up view, no headless second instance and no second one for a scrape.
+  The rule is enforced structurally in CI: every `WebView(` construction in `app/src/main` lives in
+  `BrowserEngine.kt`, and there are at most two of them.
+- The second construction is the popup window `window.open()` asks for, and its lifetime is the whole
+  point of the design: at most one at a time, created on a gesture, `destroy()`d on `onCloseWindow`, on
+  Back, on a refused navigation, on a dead renderer and on `destroyView()`. A page that keeps a popup open
+  forever is the one case where this app holds two views, and it costs the ~1 frame the sheet occupies —
+  `onLowMemory` clears the popup's HTTP cache alongside the page's.
 - No `Profile`/multi-profile APIs, no second process, no `RendererPriorityPolicy` games: one renderer is
   the cheapest correct configuration here.
 - No Service of any kind, no WorkManager, no foreground service, no alarm, no polling: with the app closed

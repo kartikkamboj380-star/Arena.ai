@@ -45,8 +45,25 @@ a page to ask to be trusted.
 - No `evaluateJavascript`, no `injectJavascriptObj`, no `postWebMessage`/`createWebMessageChannel`, no
   `shouldInterceptRequest`. The app cannot run script in the page and cannot rewrite what the page loads;
   the deleted v1 code did all three, and deleting them removed the attack surface rather than hardening it.
-- `allowFileAccess = false`, `allowContentAccess = false`, `setGeolocationEnabled(false)`,
-  `javaScriptCanOpenWindowsAutomatically = false`, `setSupportMultipleWindows(false)`.
+- `allowFileAccess = false`, `setGeolocationEnabled(false)`, and `javaScriptCanOpenWindowsAutomatically =
+  false`, which is the platform's popup blocker: as Android's own documentation of that setting puts it,
+  "attempts without a user gesture will fail and do nothing", and "this is not affected by the
+  `setSupportMultipleWindows(boolean)` setting". Gesture-gated script, no gesture-free popups.
+- `allowContentAccess` is left at the platform default (`true`): `content://` reads are what a working
+  browser does, they are gated by the URI permission a picker grants, and `file://` — the scheme with a
+  real attack surface — is closed above.
+- `setSupportMultipleWindows(true)` is on *only* so a sign-in popup has a window to reply into, and what
+  that window may do is decided here rather than by the page:
+  - it is granted for a user gesture, and never a second at a time;
+  - it is built through the same `configure()` as the page, so it gets the same settings, the same
+    `ArenaWebViewClient` policy (a `target="_blank"` that wants to leave the app still leaves it — and
+    takes the sheet down with it, because an empty sheet is worse than no sheet) and the same per-view
+    third-party cookies;
+  - it never rewrites the page's state: an error inside it is reported inside it;
+  - the shell says which host it is on, which is what Android asks for instead of overlaying a window
+    silently;
+  - `onCreateWindow` carries no URL and Android says the requesting frame cannot be identified, so no
+    policy is claimed over a URL this app was never given.
 - `WebView.setWebContentsDebuggingEnabled(true)` only when `BuildConfig.DEBUG`, so a release APK cannot
   be inspected over DevTools.
 

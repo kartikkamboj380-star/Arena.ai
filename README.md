@@ -60,15 +60,17 @@ cookies are flushed so a kill cannot lose a sign-in. What Android then does with
 process is not the app's choice — [docs/BACKGROUND.md](docs/BACKGROUND.md) states exactly which cases
 work, which degrade, and what could not be verified.
 
-**Memory.** One renderer, one WebView, `offscreenPreRaster` left off, and the HTTP cache given back at
+**Memory.** One renderer, one persistent WebView (plus at most one transient popup window, destroyed the
+moment it closes), `offscreenPreRaster` left off, and the HTTP cache given back at
 `TRIM_MEMORY_BACKGROUND` — the only pressure level Android still delivers since API 34, which is also
 why the app does not pretend to have a finer-grained plan. No `System.gc()`, no preload, no second
 hidden browser instance. [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
-**Sign-in.** The site's own form, in this window, with third-party cookies enabled for that window only
-so the provider's redirect chain can complete. No user-agent spoofing, no cookie extraction, no
-automation. If the provider refuses an embedded view, the app says so and offers the browser.
-[docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
+**Sign-in.** The site's own form, in this window, with third-party cookies enabled for the views that
+need them so the provider's redirect chain can complete — and a `window.open()` sign-in popup gets a real
+labelled window, because a popup with nowhere to reply is what produced Google's `Error 400`. No
+user-agent spoofing, no cookie extraction, no automation. If the provider refuses an embedded view, the app
+says so and offers the browser. [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
 
 **Security.** In-app navigation is limited to the site's own domain family and the identity provider's
 domains — the provider's wider domains only while a sign-in is mid-chain — plus
@@ -93,7 +95,7 @@ Details, artifacts, release signing: [docs/BUILD.md](docs/BUILD.md).
 
 | Kind | Count | Status on CI |
 | --- | --- | --- |
-| JVM unit tests (`:app:testDebugUnitTest`) | 69, in 5 files | **executed**, must pass |
+| JVM unit tests (`:app:testDebugUnitTest`) | 75, in 5 files | **executed**, must pass |
 | Instrumentation tests (`app/src/androidTest`) | 6 | **compiled only** — no emulator in CI, never executed |
 | Lint (`:app:lintDebug`) | — | executed, `abortOnError = false`, findings published as an artifact |
 | Manual device checklist (15 items: sign-in, uploads, back, backgrounding, lock-screen during generation, renderer recovery, low memory) | 15 | **not performed** — this repository has no device |
@@ -121,7 +123,7 @@ app/src/main/java/com/kartikkamboj/arena/
     ├── ParsedUrl.kt             URL reading without android.net.Uri (so it can be unit-tested)
     ├── NavigationPolicy.kt      render / hand off / refuse — the security boundary
     ├── BrowserState.kt          pure reducer: what the shell is allowed to claim
-    ├── BrowserEngine.kt         the one WebView, its lifecycle, downloads, chooser
+    ├── BrowserEngine.kt         every WebView the app owns, lifecycle, popups, downloads, chooser
     └── ArenaWebClients.kt       WebViewClient + WebChromeClient, thin on purpose
 ```
 

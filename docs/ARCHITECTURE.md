@@ -8,9 +8,15 @@ Three rules shape everything below.
 2. **The app may only claim what it can see.** Every status on screen comes from a WebView callback —
    `onPageStarted`, `onProgressChanged`, `onPageFinished`, `onReceivedError`. Nothing is marked loaded,
    signed-in or successful because a button was pressed.
-3. **One WebView, always.** No second, hidden or throwaway browser instance, ever; not for a popup, a
-   preview, a scrape or a warm-up. A second `WebView` on a 3 GB phone is the difference between keeping
-   your conversation and being killed.
+3. **One page, and at most one visible window above it.** There is exactly one persistent `WebView`, and
+   no hidden or throwaway browser instance — not for a preview, a scrape, a warm-up or a background
+   fetch. The single exception is the transient window a page asks for with `window.open()`: it is
+   created only for a user gesture, it is labelled with the host it is really on, at most one exists, and
+   it is destroyed the moment the page or the user closes it. That exception is not decoration — a
+   sign-in that arrives as a popup has nowhere to reply otherwise (see
+   [AUTHENTICATION.md](AUTHENTICATION.md)). A second *persistent* `WebView` on a 3 GB phone is the
+   difference between keeping your conversation and being killed, which is why the exception is bounded
+   rather than general.
 
 ## Layers
 

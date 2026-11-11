@@ -89,6 +89,60 @@ The reducer has no state that could represent a login (`PagePhase` has no `AUTHE
 value), and a `BrowserReducerTest` case asserts that, so "report success because a redirect looked right"
 is not a change that can be made by accident.
 
+## The comparison: the same site signs in when packaged, and 400s here
+
+Reported: packaging `arena.ai` with a WebView-wrapper tool signs in with Google successfully, while this
+app stopped at `Error 400` from `accounts.google.com`. The wrapper's own source was **not** available, so
+nothing below is a claim about what that tool does internally; it is a claim about what *this* app was
+missing, checked against the platform's own documentation and against the published guidance for the same
+class of wrapper. The eight places a WebView host can differ, dimension by dimension:
+
+| # | Dimension | This app, before the fix | Needed for a popup sign-in to complete | How that was established |
+| --- | --- | --- | --- | --- |
+| 1 | WebView configuration | one `configure()` for the single view | the same settings must apply to *every* view a flow touches | read from `BrowserEngine.configure` |
+| 2 | Third-party cookies | on, per view, root view only | on for the view that actually receives the provider's reply — the popup, not the page | `setAcceptThirdPartyCookies` is per-view by API design |
+| 3 | User-Agent | untouched, so it carries the `; wv)` marker | a wrapper world that "works" often rewrites this; **rewriting it is a policy violation** and is not what this app does | our code; Google's embedded-user-agent rule |
+| 4 | JavaScript / DOM storage | both already on | both on | our code — so neither could be the difference |
+| 5 | Popup / `window.open` | **`setSupportMultipleWindows(false)`, no `onCreateWindow`, no `onCloseWindow`** | a real second window, handed back through `WebView.WebViewTransport`, so `window.opener` exists | our code; `WebChromeClient` reference; the reports below |
+| 6 | External browser / Custom Tabs | used only for a hand-off | a Custom Tab has no `window.opener` to post into, so it cannot carry a *popup* flow either | `CustomTabsService` contract; §why a hand-off cannot be repaired |
+| 7 | Redirect / callback handling | no registered redirect URI, by design | unchanged: a same-site callback already renders in-app | `NavigationPolicy`, and the missing `assetlinks.json` probes |
+| 8 | Lifecycle / navigation policy | `shouldOverrideUrlLoading` main-frame only; Back = site history | the child view must be governed too, and Back must not trap the user behind a sheet | our code; `onCreateWindow` guidance |
+
+**The exact difference is row 5.** Google Identity Services signs in through a popup: the page calls
+`window.open()`, the provider page posts the credential back to `window.opener`, and the popup closes
+itself. With multiple windows refused there is no second window, so nothing receives that post — and the
+provider's own fallback path, a top-frame navigation to `accounts.google.com/gis_transform`, is what
+answers `400 malformed request`. That failure shape is documented outside this repository in exactly the
+situation we were in: a popup sign-in opened inside a single-tab in-app browser ends on `gis_transform`
+with a 400, and the reported remedy is either a redirect flow or a host that supports the window. The same
+pair of settings — `setSupportMultipleWindows(true)` plus an `onCreateWindow` that hands back a `WebView` —
+is what the published integration guides for other embedded-SDK sign-ins name as "the most critical
+configuration", and what the long-standing open-source WebView wrapper threads about "Google Login issue"
+land on.
+
+Rows 1–4 and 7–8 were already correct or already permissive, which is why they cannot explain a 400: a
+setting that matches cannot be the difference. Row 3 is the one place a working packaged app may genuinely
+differ from this one, and this app will not follow it: Google refuses authorization requests sent to an
+embedded user agent, and stripping `; wv)` to hide that is itself prohibited. Row 3 is therefore handled
+as a *stated limit* (`PagePhase.AUTH_REFUSED`, §the known hard limit), not as a bypass.
+
+**What this fix does.** `onCreateWindow` is honoured when — and only when — `isUserGesture` is true, into
+at most one transient window built by the same `configure()`, wired back with `WebView.WebViewTransport`
+before the callback returns, labelled with the host it is really on, and destroyed by `onCloseWindow`,
+Back, a refused or handed-off navigation, a dead renderer or view teardown. A gesture-free request stays
+refused, which is the browser default and the platform's own advice. The window is a first-class citizen
+of the navigation policy (its own child `ArenaWebViewClient`) and gets its own third-party-cookie grant —
+that grant is what row 2 was always meant to cover and could not reach while there was only one view.
+
+**The falsifiable part, for the device run.** If the logcat line `popup window created` appears when
+pressing *Continue with Google* and the sign-in still fails, this app is not in the popup case and the
+remaining candidate is row 3 (the redirect flow meeting the embedded-agent policy) — in which case no
+WebView setting of ours will fix it and the answer is the site's own browser-based sign-in, which the strip
+already offers. The line `popup answered 400 on accounts.google.com [oauth params: …]` is what tells
+those two apart: `ux_mode`/`origin` present means a popup request, while a bare
+`client_id,response_type,redirect_uri,scope,state` on a top-frame load means a redirect request, and a
+`redirect_uri_mismatch` on it is the site's OAuth configuration, not this app.
+
 ## What the app does
 
 | Step | Implementation |
@@ -97,7 +151,8 @@ is not a change that can be made by accident.
 | Stay on the site's auth service | any `*.arena.ai` over https is the site — including `auth.arena.ai` |
 | Follow the provider's redirect | the hosts Google publishes, plus (mid-chain only) anything under `PROVIDER_DOMAINS` |
 | Let the redirect chain work | `CookieManager.setAcceptThirdPartyCookies(view, true)` — scoped to this one view; the global default is untouched |
-| Keep the page usable if a popup is used | `setSupportMultipleWindows(false)`, so a `target="_blank"` provider window continues in the same view instead of needing a second `WebView` |
+| Give a popup sign-in a window to reply into | `setSupportMultipleWindows(true)` + `onCreateWindow`, for a user gesture only, one at a time, same `configure()`, same policy, same per-view cookies |
+| Tear that window down from every direction | `onCloseWindow`, Back, a refused/handed-off navigation, `onRenderProcessGone`, `destroyView()` and `shutdown()` all close it; `onLowMemory` clears its cache too |
 | React to a refusal | a 4xx on the main frame while on a provider host → `PagePhase.AUTH_REFUSED` → the panel that explains it and names the alternative |
 | Not lose a session to a memory kill | `CookieManager.flush()` on every `onStop`, before the process becomes a reclamation candidate |
 | Leave the flow alone | no `onReceivedLoginRequest` interception, no form filling, no DOM reading, no `WebMessage` handler |
@@ -160,16 +215,32 @@ nav auth.arena.ai/login -> accounts.google.com/o/oauth2/v2/auth [in-app]
 hand-off medium.com/x [EXTERNAL_LINK]
 browser hand-off via custom tab
 intent android.intent.action.VIEW for arena.ai/battle
+popup window created
+popup request [oauth params: client_id,nonce,redirect_uri,response_type,scope,state,ux_mode]
+popup answered 400 on accounts.google.com [oauth params: redirect_uri,response_type,client_id]
+popup refused without a user gesture
+popup window closed
 ```
 
-No query string is ever logged, because an OAuth callback carries `code`, `state` and sometimes an
-`id_token` there; `AppLog` additionally redacts cookie/auth-header/JWT/email shapes as a second line of
-defence. Passwords, OTPs, cookies and tokens are never read, so there is nothing of theirs to log.
+The `[oauth params: …]` suffix is the *names* Google's request used, never their values — Google's failure
+pages are indistinguishable from the outside and the parameter set is the only part of the request this app
+may honestly report. `ArenaSite.oauthParameterNames` allow-lists the names and drops everything else, and
+an `origin_mismatch`/`redirect_uri_mismatch`/`invalid_request` can be told apart from that line alone.
+
+No query string is ever logged **in full**, because an OAuth callback carries `code`, `state` and
+sometimes an `id_token` there: what is logged is the allow-listed set of parameter *names* on a provider
+navigation, which cannot contain a value by construction (`ArenaSite.oauthParameterNames` takes the text
+before each `=` and drops anything not on the list). `AppLog` additionally redacts
+cookie/auth-header/JWT/email shapes as a second line of defence, and a JVM test asserts that a secret in a
+value never reaches the reported string. Passwords, OTPs, cookies and tokens are never read, so there is
+nothing of theirs to log.
 
 ## Testing status
 
 Nothing in this file has been verified by completing a live sign-in on a device: this repository's
 environment has no phone and no emulator, CI does not log in to anything, and the JVM tests assert the
-*rules* (which host may render where, what may be logged, what the reducer may claim), not Google's
-behaviour. The six-step sequence in the bug report is recorded as a device checklist item in
+*rules* (which host may render where, what may be logged, what the reducer may claim, that a popup's own
+page cannot rewrite the site's state), not Google's behaviour. The popup hosting above is therefore
+**root cause removed, awaiting a device run** — including the check that a popup window actually appears
+for the site's Google button, which is the assumption the whole diagnosis rests on. The six-step sequence in the bug report is recorded as a device checklist item in
 [TESTING.md](TESTING.md) §Authentication and remains **not performed**.

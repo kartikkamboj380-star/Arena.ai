@@ -78,15 +78,23 @@ jobs:
       # The rules this repository's own documentation makes about the shipped code, checked
       # mechanically so a document cannot quietly drift from the source it describes. Comments are
       # stripped before matching: a KDoc line that *explains* a forbidden call is not a use of it.
-      - name: Refuse the capabilities the docs deny
+      - name: Check the promises the docs make
         run: |
           set -uo pipefail
           strip() { grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//|/\*)'; }
           fail=0
+          SRC=app/src/main
+          WEB=$SRC/java/com/kartikkamboj/arena/web
           refuse() { # $1 = promise, $2 = pattern that must not appear in app/src/main
-            if grep -rInE "$2" --include='*.kt' --include='*.xml' app/src/main | strip | grep -q .; then
+            if grep -rInE "$2" --include='*.kt' --include='*.xml' $SRC | strip | grep -q .; then
               echo "::error::$1 — forbidden pattern: $2"
-              grep -rInE "$2" --include='*.kt' --include='*.xml' app/src/main | strip | sed 's/^/    /'
+              grep -rInE "$2" --include='*.kt' --include='*.xml' $SRC | strip | sed 's/^/    /'
+              fail=1
+            fi
+          }
+          require() { # $1 = promise, $2 = file, $3 = pattern that must appear there
+            if ! grep -qE "$3" "$2"; then
+              echo "::error::$1 — expected $3 in $2"
               fail=1
             fi
           }
@@ -94,17 +102,33 @@ jobs:
           refuse "the app must not run script inside the page" 'evaluateJavascript|loadUrl\( *"javascript:'
           refuse "the app must not read, copy or clear the site's cookies" 'CookieManager[[:space:]]*\.[[:space:]]*getInstance\(\)[[:space:]]*\.[[:space:]]*getCookie|removeAllCookies|removeSessionCookies|clearFormData|clearHistory'
           refuse "no live streaming may be suspended from the background" '\.pauseTimers\(\)'
-          refuse "no second or hidden WebView may be constructed" 'new WebView\(|WebView\(this\)|WebView\(context\)|WebView\(activity'
+          refuse "the user agent must not be rewritten to hide the WebView marker" 'userAgentString|setUserAgent'
           refuse "forcing a garbage collection is not memory management" 'System\.gc\(\)|Runtime\.getRuntime\(\)\.gc\(\)'
           refuse "no HTTP client: the site is reached only through the WebView" 'okhttp3|retrofit2|HttpURLConnection|java\.net\.http\.HttpClient'
           refuse "no telemetry, analytics or crash upload" 'com\.google\.firebase|firebase-analytics|acra|bugsnag|sentry'
-          count=$(grep -rInE '= WebView\(' --include='*.kt' app/src/main | strip | wc -l)
-          if [ "$count" -ne 1 ]; then
-            echo "::error::expected exactly one WebView construction in app/src/main, found $count"
+          # Every WebView this app owns is constructed in BrowserEngine.kt, and there are at most two:
+          # the one persistent page, plus the single transient window a `window.open()` popup needs.
+          stray=$(grep -rIlE '= WebView\(' --include='*.kt' $SRC | grep -v 'web/BrowserEngine.kt' || true)
+          if [ -n "$stray" ]; then
+            echo "::error::a WebView is constructed outside BrowserEngine.kt: $stray"
             fail=1
           fi
+          count=$(grep -rInE '= WebView\(' --include='*.kt' $SRC | strip | wc -l)
+          if [ "$count" -gt 2 ]; then
+            echo "::error::expected at most two WebView constructions (the page and one popup window), found $count"
+            fail=1
+          fi
+          # The popup rules the docs promise, checked in the direction that matters: they must be present.
+          require "a popup must be granted only for a user gesture" "$WEB/BrowserEngine.kt" 'if \(!isUserGesture\)'
+          require "the sign-in window needs multi-window support" "$WEB/BrowserEngine.kt" 'setSupportMultipleWindows\(true\)'
+          require "the platform popup blocker stays on" "$WEB/BrowserEngine.kt" 'javaScriptCanOpenWindowsAutomatically = false'
+          require "page content must not reach device files" "$WEB/BrowserEngine.kt" 'allowFileAccess = false'
+          require "a popup window must be destroyed, not dropped" "$WEB/BrowserEngine.kt" 'popup\.destroy\(\)'
+          require "the window request and its close must both be handled" "$WEB/ArenaWebClients.kt" 'onCreateWindow'
+          require "the window request and its close must both be handled" "$WEB/ArenaWebClients.kt" 'onCloseWindow'
+          require "the popup must run the app's own navigation policy" "$WEB/BrowserEngine.kt" 'configure\(popup\)'
           if [ "$fail" -eq 0 ]; then
-            echo "Every denied capability is still absent from the shipped code."
+            echo "Every capability the docs deny is absent, and the popup promises they make are present."
           else
             exit 1
           fi
