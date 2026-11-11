@@ -43,12 +43,17 @@ open app/build/reports/tests/testDebugUnitTest/index.html
 
 ## 3. Instrumentation tests — compiled, never executed
 
-`app/src/androidTest/java/com/kartikkamboj/arena/ShellInstrumentedTest.kt`, 6 tests. CI assembles the
+`app/src/androidTest/java/com/kartikkamboj/arena/ShellInstrumentedTest.kt`, 8 tests. CI assembles the
 APK, which is the only guarantee made about them: **they have not been run**, because this repository has
-no emulator. They cover the two things the JVM cannot see — `android.net.Uri` agreeing with `ParsedUrl`
-about hosts on a real framework, the site's trust list agreeing with the framework's own parse, the
-"one `WebView`" rule against a live view, a replaced view being a new instance, Back on a fresh view
-being refused rather than invented, and progress not being able to fake a first paint.
+no emulator. They cover the things the JVM cannot see — `android.net.Uri` agreeing with `ParsedUrl` about
+hosts on a real framework, the site's trust list agreeing with the framework's own parse, the persistent
+view being reused and a replaced view being a new instance, Back on a fresh view being refused rather than
+invented, progress not being able to fake a first paint, and the two window rules: a
+`window.open()` request is granted only for a gesture **and** only when the framework supplied a
+transport to hand a view to, and a granted window is the app's own `ArenaWebViewClient` view that leaves
+no state behind when it closes. Those last two need `Message`/`WebViewTransport` and
+`WebView.getWebViewClient()` (exactly the API level this app's `minSdk` starts at), which is why they are
+device tests and not JVM tests.
 
 ```bash
 ./gradlew :app:connectedDebugAndroidTest              # needs a device or emulator

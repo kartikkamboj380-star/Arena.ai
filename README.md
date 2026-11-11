@@ -96,7 +96,7 @@ Details, artifacts, release signing: [docs/BUILD.md](docs/BUILD.md).
 | Kind | Count | Status on CI |
 | --- | --- | --- |
 | JVM unit tests (`:app:testDebugUnitTest`) | 75, in 5 files | **executed**, must pass |
-| Instrumentation tests (`app/src/androidTest`) | 6 | **compiled only** — no emulator in CI, never executed |
+| Instrumentation tests | 8 | **compiled only** — no emulator in CI, never executed |
 | Lint (`:app:lintDebug`) | — | executed, `abortOnError = false`, findings published as an artifact |
 | Manual device checklist (15 items: sign-in, uploads, back, backgrounding, lock-screen during generation, renderer recovery, low memory) | 15 | **not performed** — this repository has no device |
 
