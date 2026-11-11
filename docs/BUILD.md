@@ -32,7 +32,7 @@ echo "sdk.dir=/path/to/Android/sdk" > local.properties
 ```bash
 ./gradlew :app:assembleDebug          # debug APK, standard debug key
 ./gradlew :app:assembleRelease        # minified, INTENTIONALLY UNSIGNED (see §5)
-./gradlew :app:testDebugUnitTest      # 68 JVM unit tests
+./gradlew :app:testDebugUnitTest      # 69 JVM unit tests
 ./gradlew :app:lintDebug              # report: app/build/reports/lint-results-debug.html
 ./gradlew :app:installDebug           # requires a device/emulator
 ./gradlew :app:connectedDebugAndroidTest   # instrumentation; needs a device (docs/TESTING.md §4)

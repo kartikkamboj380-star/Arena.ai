@@ -220,4 +220,20 @@ class NavigationPolicyTest {
         )
     }
 
+
+    @Test
+    fun `the classic ways a host check is fooled all fail`() {
+        // userinfo: the host is what follows the @, so this is evil.com's page wearing our name.
+        for (url in listOf("https://arena.ai@evil.com/", "https://arena.ai:443@evil.com/x")) {
+            val decision = NavigationPolicy.classify(url)
+            assertTrue("$url must not be in-app", decision is Decision.HandOffToBrowser)
+        }
+        // Case and a trailing root dot are the same host, and are still us.
+        assertTrue(NavigationPolicy.classify("HTTPS://ARENA.AI/Battle") is Decision.LoadInApp)
+        assertTrue(NavigationPolicy.classify("https://arena.ai./x") is Decision.LoadInApp)
+        // An @ in the path is not userinfo; refusing it would be a rule that breaks the site to feel
+        // safe, so this half of the pair is asserted too.
+        assertTrue(NavigationPolicy.classify("https://arena.ai/redirect@evil.com") is Decision.LoadInApp)
+    }
+
 }
