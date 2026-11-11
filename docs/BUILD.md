@@ -14,8 +14,8 @@
 
 Nothing else. No plugins to install, no NDK, no KSP, no Room, no API keys, no `google-services.json`,
 no `secrets` step: the app has no keys to hold — it calls no API and stores nothing (10 runtime
-dependencies plus the Compose BOM, every one of them justified in docs/PERFORMANCE.md; 1 test
-and 5 instrumentation lines).
+dependencies plus the Compose BOM, every one of them justified in docs/PERFORMANCE.md; 1 test,
+1 debug-only line for the Compose test manifest, and 5 instrumentation lines).
 
 ## 2. Point the build at your SDK
 

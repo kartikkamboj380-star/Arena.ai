@@ -17,9 +17,10 @@ Checked directly, not from notes:
 | Tests | 199 JVM tests in 11 files; 3 instrumentation tests (compiled, never run) |
 | CI state | green: unit tests, `assembleDebug`, `assembleDebugAndroidTest`, `lintDebug`; artifacts `arena-ai-debug.apk` (17.9 MB), `unit-test-results`, `lint-report` |
 | Build config | AGP 8.7.3 · Kotlin 2.0.21 · Gradle 8.11.1 wrapper · JDK 17 · `compileSdk 35` · `minSdk 26` · `targetSdk 35` · `applicationId com.kartikkamboj.arena` · versionName 1.0.0 |
-| Notable config choices | no release `signingConfig` (CI builds unsigned release / debug-signed debug); `lint.abortOnError = false`; `unitTests.isReturnDefaultValues = true`; no Gradle configuration cache; 24 dependency declarations |
+| Notable config choices | no release `signingConfig` (CI builds unsigned release / debug-signed debug); `lint.abortOnError = false`; `unitTests.isReturnDefaultValues = true`; no Gradle configuration cache; 25 dependency declarations (17 `implementation`, 2 test, 5 androidTest, 1 debug) |
 
-**Backup branch:** `backup/pre-reset-2026-11-10` → `d971c04`. Nothing was rebased, squashed or
+**Backup branch:** `backup/pre-reset-2026-11-10` → `d971c04`, **pushed to `origin`** as well as kept
+locally, so the restore point survives anything happening to a working copy. Nothing was rebased, squashed or
 force-pushed, so every old commit is also still an ancestor of the new work: `git log` on this branch
 shows both halves of the project's life, and `git show d971c04:app/src/main/java/...` recovers any
 individual old file.
