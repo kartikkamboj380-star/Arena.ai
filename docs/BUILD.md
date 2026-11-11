@@ -9,10 +9,13 @@
 | Build-tools | `35.0.0` | CI uses it for `aapt dump badging`; any recent one works locally |
 | Gradle | **8.11.1**, via the wrapper | do not install Gradle; run `./gradlew` |
 | AGP / Kotlin | 8.7.3 / 2.0.21 | pinned in `gradle/libs.versions.toml` |
-| Compose BOM | 2024.12.01 | Material 3 + `material-icons-extended` come from it |
-| minSdk | 26 (Android 8.0) | Keystore AES-GCM and adaptive icons are both assumed available |
+| Compose BOM | 2024.12.01 | Material 3 and the two glyphs the shell needs come from it |
+| minSdk | 26 (Android 8.0) | adaptive icons, `onRenderProcessGone` and the back callback are all assumed available |
 
-Nothing else. No plugins to install, no NDK, no KSP, no Room, no API keys, no `google-services.json`.
+Nothing else. No plugins to install, no NDK, no KSP, no Room, no API keys, no `google-services.json`,
+no `secrets` step: the app has no keys to hold — it calls no API and stores nothing (10 runtime
+dependencies plus the Compose BOM, every one of them justified in docs/PERFORMANCE.md; 1 test
+and 5 instrumentation lines).
 
 ## 2. Point the build at your SDK
 
@@ -29,7 +32,7 @@ echo "sdk.dir=/path/to/Android/sdk" > local.properties
 ```bash
 ./gradlew :app:assembleDebug          # debug APK, standard debug key
 ./gradlew :app:assembleRelease        # minified, INTENTIONALLY UNSIGNED (see §5)
-./gradlew :app:testDebugUnitTest      # 172 JVM unit tests
+./gradlew :app:testDebugUnitTest      # 53 JVM unit tests
 ./gradlew :app:lintDebug              # report: app/build/reports/lint-results-debug.html
 ./gradlew :app:installDebug           # requires a device/emulator
 ./gradlew :app:connectedDebugAndroidTest   # instrumentation; needs a device (docs/TESTING.md §4)
@@ -140,7 +143,6 @@ environment variables or requires credentials. Once `~/.gradle/caches` is warm, 
 ## 9. Version bumps
 
 Single place: `gradle/libs.versions.toml` (`agp`, `kotlin`, `coroutines`, `composeBom`, …). The app's
-own version is `versionCode`/`versionName` in `app/build.gradle.kts` and is displayed on
-Settings → About from `BuildConfig`. Do not bump `compileSdk`/`targetSdk` without re-reading the
-WebView `Profile`/`MULTI_PROFILE` behaviour documented in [ACCOUNTS.md](ACCOUNTS.md) §2 — that is the
-one platform area where a new API level could legitimately change the design.
+own version is `versionCode`/`versionName` in `app/build.gradle.kts`. There is no in-app About screen to
+keep it in sync with — the shell shows nothing but the site — so the number exists only for the artifact
+name and for `dumpsys package`.

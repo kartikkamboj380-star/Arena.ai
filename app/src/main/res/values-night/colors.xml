@@ -1,0 +1,7 @@
+<resources>
+    <!-- Charcoal for the dark theme: warm-tinted, so it never reads as blue-black. -->
+    <color name="arena_window">#141312</color>
+    <color name="arena_splash">#141312</color>
+    <color name="arena_accent">#C8794F</color>
+    <color name="arena_ic_launcher_background">#141312</color>
+</resources>

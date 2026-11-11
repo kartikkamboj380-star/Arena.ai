@@ -3,53 +3,101 @@ package com.kartikkamboj.arena.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Palette: obsidian and graphite surfaces, one emerald accent for anything the app is *doing*, and
- * warm amber for anything the user has to notice. No blue, no gradient hero, no glow.
+ * The whole palette. Two modes, one accent, no gradient, no glow.
  *
- * The surfaces are lifted in steps of ~4 in local brightness rather than by elevation shadows, which
- * is what keeps a 2 GB device honest: a shadow costs a render pass, a lighter rectangle costs
- * nothing. Text tones hold AA contrast on the darkest surface, and every accent is chosen to remain
- * legible against both the dark and the light scheme.
+ * The rule the app is built on is that colour carries meaning, not decoration: surfaces step in small
+ * increments so panels read as physical layers, warm ink is the only accent, and the one red is kept
+ * for the one thing it means (a load that failed). Nothing in here animates a colour or paints a blob.
  */
-internal object ArenaPalette {
-    val Black = Color(0xFF060708)
-    val Charcoal = Color(0xFF0A0C0D)
-    val Surface = Color(0xFF101314)
-    val SurfaceHigh = Color(0xFF15191A)
-    val SurfaceVariant = Color(0xFF1A1F20)
-    val SurfaceLow = Color(0xFF0D1011)
-    val Outline = Color(0xFF282E2F)
-    val OutlineSoft = Color(0xFF1D2223)
+object ArenaPalette {
 
-    /** Primary accent: the user's own side of the boundary — active slot, live session, focus. */
-    val Emerald = Color(0xFF35C48A)
-    val EmeraldSoft = Color(0xFF6FDCAE)
+    // ---- light: warm paper, not clinical white -------------------------------------------------
+    val Paper = Color(0xFFF6F3EF)
+    val PaperSurface = Color(0xFFFFFFFF)
+    val PaperSurfaceHigh = Color(0xFFF1EDE8)
+    val PaperOutline = Color(0xFFE3DDD5)
+    val PaperOutlineSoft = Color(0xFFEDE8E2)
+    val PaperInk = Color(0xFF1C1A17)
+    val PaperInkMuted = Color(0xFF6B655D)
+    val PaperInkFaint = Color(0xFF746D63)
+    val PaperOnAccent = Color(0xFFFFF8F4)
 
-    /** Attention, never alarm: rate limits, "verify me", pending sign-in. */
-    val Amber = Color(0xFFE3A857)
+    // ---- dark: charcoal and graphite, warm-tinted so it never reads as blue -------------------
+    val Charcoal = Color(0xFF141312)
+    val Graphite = Color(0xFF1C1B19)
+    val GraphiteHigh = Color(0xFF262421)
+    val GraphiteOutline = Color(0xFF37342F)
+    val GraphiteOutlineSoft = Color(0xFF2C2A26)
+    val Ink = Color(0xFFECE9E4)
+    val InkMuted = Color(0xFFA39C92)
+    val InkFaint = Color(0xFF8B857B)
+    val OnAccent = Color(0xFF1B0E06)
 
-    val Rose = Color(0xFFF0596E)
-    val Mint = Color(0xFF7FE0BB)
+    // ---- accent + the two semantic colours, in both keys --------------------------------------
+    /** Clay: the app's own chrome. Deliberately warm, deliberately the only saturated colour. */
+    val Clay = Color(0xFFC8794F)
+    val ClayLight = Color(0xFFA64E2C)
+    val ClaySoft = Color(0xFFE8B392)
+    val Error = Color(0xFFD96A5B)
+    val ErrorLight = Color(0xFFA8321F)
+    // Note: `Error` above is the dark-mode red; `ErrorLight` is the light-mode one. Both are used
+    // only for text that says something went wrong — never as a fill, never as a border glow.
+    val Warning = Color(0xFFD9A03F)
+    val WarningLight = Color(0xFF8A5A00)
 
-    val Text = Color(0xFFECEDF0)
-    val TextMuted = Color(0xFF99A1A6)
-    val TextFaint = Color(0xFF6A737A)
+    /** Scrim behind a panel. No blur, no frosted anything. */
+    val Scrim = Color(0x99000000)
 
-    val OnAccent = Color(0xFF07130E)
+    val light = Palette(
+        background = Paper,
+        surface = PaperSurface,
+        surfaceHigh = PaperSurfaceHigh,
+        outline = PaperOutline,
+        outlineSoft = PaperOutlineSoft,
+        ink = PaperInk,
+        inkMuted = PaperInkMuted,
+        inkFaint = PaperInkFaint,
+        accent = ClayLight,
+        accentSoft = ClaySoft,
+        onAccent = PaperOnAccent,
+        error = ErrorLight,
+        warning = WarningLight,
+    )
 
-    // Light scheme keeps the same accents on paper-white surfaces.
-    val LightBackground = Color(0xFFFAFBFA)
-    val LightSurface = Color(0xFFFFFFFF)
-    val LightSurfaceVariant = Color(0xFFEDF0EF)
-    val LightOutline = Color(0xFFD4D9D8)
-    val LightText = Color(0xFF101314)
-    val LightTextMuted = Color(0xFF565E62)
-
-    /**
-     * Card fill. Deliberately two adjacent tones: enough to read as a raised panel, close enough
-     * that it never looks like a gradient was applied for its own sake.
-     */
-    val cardGradient: androidx.compose.ui.graphics.Brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-        listOf(Color(0xFF141819), Color(0xFF101314)),
+    val dark = Palette(
+        background = Charcoal,
+        surface = Graphite,
+        surfaceHigh = GraphiteHigh,
+        outline = GraphiteOutline,
+        outlineSoft = GraphiteOutlineSoft,
+        ink = Ink,
+        inkMuted = InkMuted,
+        inkFaint = InkFaint,
+        accent = Clay,
+        accentSoft = Clay,
+        onAccent = OnAccent,
+        error = Error,
+        warning = Warning,
     )
 }
+
+/**
+ * A named set of the six roles the shell actually paints. Existing as data rather than as a
+ * `MaterialTheme.colorScheme` lookup keeps the "what colour is a failure" decision in one place, and
+ * lets the WebView host pick its own backdrop without reaching through the colour scheme.
+ */
+data class Palette(
+    val background: Color,
+    val surface: Color,
+    val surfaceHigh: Color,
+    val outline: Color,
+    val outlineSoft: Color,
+    val ink: Color,
+    val inkMuted: Color,
+    val inkFaint: Color,
+    val accent: Color,
+    val accentSoft: Color,
+    val onAccent: Color,
+    val error: Color,
+    val warning: Color,
+)

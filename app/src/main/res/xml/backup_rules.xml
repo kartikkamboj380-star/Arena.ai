@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Legacy (API <= 30) auto backup. Session snapshots and the account registry never leave
-     the device. -->
-<full-backup-content>
-    <exclude domain="file" path="secure" />
-    <exclude domain="file" path="arena" />
-    <exclude domain="sharedpref" path="." />
-</full-backup-content>

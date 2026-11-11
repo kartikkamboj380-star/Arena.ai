@@ -1,104 +1,158 @@
 package com.kartikkamboj.arena.web
 
 /**
- * Every navigation the WebView attempts passes through here first.
+ * Every main-frame navigation the WebView attempts is decided here, before anything renders.
  *
- * The rules encode the security requirements rather than trusting the page:
- *  * only `https://arena.ai` documents are ever rendered inside the app;
- *  * a navigation that lands on an identity provider is *not* followed in-app — providers refuse
- *    embedded views, so the user is moved to the browser instead of the app showing a dead page
- *    (and instead of any attempt to defeat that check);
- *  * everything else leaves for the browser, and `javascript:`/`data:`/`file:` never reach the
- *    WebView at all.
+ * The rules implement the trust requirement rather than trusting the page:
+ *  * `https://arena.ai` (and `www`) is the only content the app shows as itself;
+ *  * the identity-provider pages a sign-in has to pass through may render in this window, so the
+ *    site's own cookies survive the redirect — that is the whole login story, and it is the only
+ *    thing the app does about authentication;
+ *  * every other site leaves for the user's browser, where their own session and the platform's TLS
+ *    handling apply, instead of being swallowed by a signed-in view;
+ *  * `javascript:`, `data:` and `file:` never reach the WebView at all.
+ *
+ * No branch of this class inspects a page's DOM, fills a form, reads a cookie or rewrites a user
+ * agent. Where a provider refuses an embedded view, that is reported by [ArenaSite.AUTH_HOSTS]
+ * handling plus the load-error state, not worked around.
  */
 object NavigationPolicy {
 
     sealed interface Decision {
-        /** Render it in the slot's session. */
-        data class LoadInSession(val url: String) : Decision
+        /** Render it in the app's WebView. */
+        data class LoadInApp(val url: String) : Decision
 
-        /** Leave the app: your browser handles sign-in for providers that block embedded views. */
+        /** Leave the app: the user's browser (or another app) handles it. */
         data class HandOffToBrowser(val url: String, val reason: HandoffReason) : Decision
 
-        /** Refuse and explain. */
+        /** Refuse, and say why. */
         data class Block(val reason: BlockReason, val url: String) : Decision
     }
 
-    enum class HandoffReason { IDENTITY_PROVIDER, EXTERNAL_LINK }
+    enum class HandoffReason {
+        /** An ordinary https link to someone else's site. */
+        EXTERNAL_LINK,
 
-    enum class BlockReason {
-        NON_HTTPS_SCHEME,
-        MALFORMED_URL,
-        OFF_ORIGIN,
-        ;
+        /** `mailto:`/`tel:`/`sms:` — the system's own handlers, not a browser tab. */
+        APP_HANDLER,
+
+        /** Plain http: the app never carries a session over cleartext, the browser can decide. */
+        INSECURE_SCHEME,
     }
 
-    /**
-     * [allowIdentityHosts] is set only while the user is actively signing a slot in: a session
-     * established in the system browser belongs to the browser's cookie jar and can never be moved
-     * into this slot, so handing the provider off mid-sign-in is what left users staring at the
-     * logged-out homepage. Ordinary navigation still leaves the arena origin for the browser.
-     */
-    fun classify(rawUrl: String?, allowIdentityHosts: Boolean = false): Decision {
+    enum class BlockReason {
+        MALFORMED_URL,
+        JAVASCRIPT_SCHEME,
+        DATA_SCHEME,
+        FILE_SCHEME,
+        ABOUT_BLANK_ONLY,
+    }
+
+    /** Schemes handled by an installed app rather than by a browser. */
+    private val appHandlerSchemes = setOf("mailto", "tel", "sms", "smsto", "geo", "calendar", "whatsapp")
+
+    fun classify(rawUrl: String?): Decision {
         val url = rawUrl?.trim().orEmpty()
         if (url.isEmpty()) return Decision.Block(BlockReason.MALFORMED_URL, url)
 
-        val parsed = ParsedUrl.of(url) ?: return Decision.Block(BlockReason.MALFORMED_URL, url)
-        val scheme = parsed.scheme
-
-        // about:blank is what window.open() hands back before script writes into it.
-        if (scheme == "about") return Decision.LoadInSession(url)
-
-        if (scheme == null) {
-            // Scheme-less hrefs only ever come from an arena.ai document; resolve and re-check.
-            val resolved = ArenaUrls.absolute(url)
-                ?: return Decision.Block(BlockReason.MALFORMED_URL, url)
-            return classify(resolved)
-        }
-
-        if (scheme == "http") {
-            // Upgrade rather than downgrade: arena.ai is HTTPS-only, so plain http is either a typo
-            // or a stripping attempt, and a session page must never be loaded over cleartext.
-            return if (parsed.hasArenaHost) {
-                Decision.LoadInSession("https://" + url.substring("http://".length))
-            } else {
-                Decision.Block(BlockReason.NON_HTTPS_SCHEME, url)
-            }
-        }
-
-        if (scheme != "https") {
-            return Decision.Block(BlockReason.NON_HTTPS_SCHEME, url)
-        }
+        // URI() is strict about characters a browser accepts (a space in a path, for instance), so a
+        // parse failure falls back to a structural read instead of becoming a false refusal.
+        val parsed = ParsedUrl.of(url) ?: ParsedUrl.lenient(url) ?: return Decision.Block(BlockReason.MALFORMED_URL, url)
+        val scheme = parsed.scheme ?: return Decision.Block(BlockReason.MALFORMED_URL, url)
 
         return when {
-            parsed.hasArenaHost -> Decision.LoadInSession(url)
-            parsed.hasIdentityHost -> if (allowIdentityHosts) {
-                Decision.LoadInSession(url)
-            } else {
-                Decision.HandOffToBrowser(url, HandoffReason.IDENTITY_PROVIDER)
-            }
-            // An off-site https link is not dangerous, it is just not ours: the user's browser has
-            // its own isolated cookie jar and platform TLS handling. Blocking a plain link the user
-            // tapped would be the worse failure, so it leaves the app instead of hijacking the
-            // signed-in view. [BlockReason.OFF_ORIGIN] stays for non-http(s) schemes above.
-            else -> Decision.HandOffToBrowser(url, HandoffReason.EXTERNAL_LINK)
+            // about:blank is what a browser hands back before script writes into it; nothing else
+            // under `about:` gets a signed-in view.
+            scheme == "about" ->
+                if (url.equals("about:blank", ignoreCase = true) || url.equals("about:srcdoc", ignoreCase = true)) {
+                    Decision.LoadInApp(url)
+                } else {
+                    Decision.Block(BlockReason.ABOUT_BLANK_ONLY, url)
+                }
+
+            scheme == "javascript" -> Decision.Block(BlockReason.JAVASCRIPT_SCHEME, url)
+            scheme == "data" -> Decision.Block(BlockReason.DATA_SCHEME, url)
+            scheme == "file" -> Decision.Block(BlockReason.FILE_SCHEME, url)
+
+            scheme == "http" ->
+                // The site is HTTPS-only, so a cleartext request for it is a typo or a stripping
+                // attempt: upgrade rather than downgrade. Anyone else's http is their browser's call.
+                if (parsed.hostIn(ArenaSite.TRUSTED_HOSTS)) {
+                    Decision.LoadInApp(url.replaceFirst("http://", "https://", ignoreCase = true))
+                } else {
+                    Decision.HandOffToBrowser(url, HandoffReason.INSECURE_SCHEME)
+                }
+
+            scheme == "https" ->
+                if (parsed.hostIn(ArenaSite.TRUSTED_HOSTS) || parsed.hostIn(ArenaSite.AUTH_HOSTS)) {
+                    Decision.LoadInApp(url)
+                } else {
+                    Decision.HandOffToBrowser(url, HandoffReason.EXTERNAL_LINK)
+                }
+
+            scheme in appHandlerSchemes -> Decision.HandOffToBrowser(url, HandoffReason.APP_HANDLER)
+
+            // intent:, market:, and anything unrecognised are not this app's business.
+            else -> Decision.Block(BlockReason.MALFORMED_URL, url)
         }
     }
 
     /**
-     * Whether a `target="_blank"` / `window.open()` request may become a new in-app page. Only
-     * arena.ai documents qualify; anything else is opened by the caller in the user's browser.
+     * Resolves a page-supplied reference against the page it came from, then applies the same
+     * rules. Used for `target="_blank"` targets, where the URL arrives as written in the document.
      */
-    fun allowsNewInAppWindow(rawUrl: String?): Boolean =
-        classify(rawUrl) is Decision.LoadInSession
+    fun classifyReference(reference: String?, baseUrl: String?): Decision {
+        val ref = reference?.trim().orEmpty()
+        if (ref.isEmpty()) return Decision.Block(BlockReason.MALFORMED_URL, ref)
+        if (ref.startsWith("//")) return classify("https:$ref")
+        if (ref.contains("://")) return classify(ref)
+        val base = ParsedUrl.of(baseUrl) ?: return classify(ref)
+        if (!base.hostIn(ArenaSite.TRUSTED_HOSTS)) {
+            // A relative link is only meaningful against a page we trust; anything else is treated
+            // as the opaque string it is.
+            return classify(ref)
+        }
+        val path = when {
+            ref.startsWith("/") -> ref
+            ref.startsWith("#") || ref.startsWith("?") -> base.path.trimEnd('/') + ref
+            else -> {
+                val parent = base.path.substringBeforeLast('/', "")
+                "$parent/${ref.trimStart('.', '/')}"
+            }
+        }
+        return classify("https://${base.host}$path")
+    }
 
-    /** Text shown when a sign-in hand-off happens, so the reason is never a mystery. */
-    fun handoffExplanation(reason: HandoffReason): String = when (reason) {
-        HandoffReason.IDENTITY_PROVIDER ->
-            "Your identity provider does not allow sign-in inside another app, so this opened in " +
-                "your browser. Finish it there, then sign in inside Arena AI with e-mail to give " +
-                "this account slot its own session."
+    /**
+     * Whether a `window.open()` / `target="_blank"` request may become a page in this WebView. Only
+     * arena.ai content qualifies; everything else is handed to the caller to open externally. One
+     * WebView is a hard rule of this app, so a second window is never created.
+     */
+    fun allowsInAppWindow(rawUrl: String?, baseUrl: String? = null): String? {
+        val decision = if (baseUrl == null) classify(rawUrl) else classifyReference(rawUrl, baseUrl)
+        return (decision as? Decision.LoadInApp)?.url
+    }
 
-        HandoffReason.EXTERNAL_LINK -> "This link leaves arena.ai, so it opened in your browser."
+    /** Wording shown to the user when something leaves the app, so a hand-off is never a mystery. */
+    fun handoffExplanation(reason: HandoffReason, host: String?): String = when (reason) {
+        HandoffReason.EXTERNAL_LINK ->
+            "${host ?: "That link"} is not arena.ai, so it opened in your browser."
+
+        HandoffReason.INSECURE_SCHEME ->
+            "${host ?: "That link"} is not an HTTPS page, so this app handed it to your browser " +
+                "rather than loading it over an unencrypted connection."
+
+        HandoffReason.APP_HANDLER ->
+            "${host ?: "That link"} is an e-mail, phone or maps address, so the app that handles " +
+                "it was asked to open it."
+    }
+
+    /** Wording shown when a navigation is refused outright. */
+    fun blockExplanation(reason: BlockReason): String = when (reason) {
+        BlockReason.MALFORMED_URL -> "That address could not be understood."
+        BlockReason.JAVASCRIPT_SCHEME -> "The page asked to run script as a link. That is not allowed."
+        BlockReason.DATA_SCHEME -> "Inline document data is not loaded by this app."
+        BlockReason.FILE_SCHEME -> "Local files are not loaded by this app."
+        BlockReason.ABOUT_BLANK_ONLY -> "Only a blank document from the page itself is accepted."
     }
 }

@@ -1,5 +1,7 @@
 <resources>
-    <color name="arena_black">#0B0B0D</color>
-    <color name="arena_charcoal">#121317</color>
-    <color name="arena_ic_launcher_background">#0B0B0D</color>
+    <!-- Warm paper for the light theme; keep in step with ui/theme/Color.kt. -->
+    <color name="arena_window">#F6F3EF</color>
+    <color name="arena_splash">#F6F3EF</color>
+    <color name="arena_accent">#A64E2C</color>
+    <color name="arena_ic_launcher_background">#141312</color>
 </resources>

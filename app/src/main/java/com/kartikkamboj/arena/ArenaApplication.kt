@@ -6,8 +6,8 @@ import com.kartikkamboj.arena.core.AppLog
 import com.kartikkamboj.arena.di.AppContainer
 
 /**
- * Process entry point. Owns the [AppContainer] for the life of the process, which is what lets the
- * live web session survive navigation and configuration changes.
+ * Process entry point, and the reason the web session survives configuration changes: it owns the
+ * [AppContainer], which owns the one WebView.
  */
 class ArenaApplication : Application() {
 
@@ -18,20 +18,25 @@ class ArenaApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         container.bootstrap()
-        AppLog.d("Arena AI ${BuildConfig.VERSION_NAME} starting (package ${packageName})")
+        AppLog.d("Arena ${BuildConfig.VERSION_NAME} starting (${packageName})")
     }
 
+    /**
+     * On a 3 GB phone this is the system asking for memory back before it kills the process. The
+     * response is graduated in [BrowserEngine.onLowMemory]: caches first, the view only at the last
+     * level. Session material is never touched, because the site's own cookies and storage are what
+     * make a recovery a re-render rather than a sign-in.
+     */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        // On a 2 GB phone the WebView cache is the first thing worth giving back.
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
-            container.onLowMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            container.engine.onLowMemory(level)
         }
     }
 
     override fun onTerminate() {
-        // Only reached on emulators; real process death relies on the capture done at ON_STOP.
-        runCatching { container.session.shutdown() }
+        // Reached on emulators only; real process death is handled by flushing cookies on ON_STOP.
+        runCatching { container.engine.shutdown() }
         super.onTerminate()
     }
 }

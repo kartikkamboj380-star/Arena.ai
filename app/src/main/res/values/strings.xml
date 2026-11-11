@@ -1,14 +1,4 @@
 <resources>
-    <string name="app_name">Arena AI</string>
-    <string name="app_subtitle">AI Chat Experience</string>
-    <string name="intent_open_arena_link">Open in Arena AI</string>
-
-    <string name="nav_chat">Chat</string>
-    <string name="nav_models">Models</string>
-    <string name="nav_history">History</string>
-    <string name="nav_accounts">Accounts</string>
-    <string name="nav_settings">Settings</string>
-
-    <string name="disclaimer">Independent community client. Not affiliated with, endorsed by, or
-        operated by Arena. Your credentials are only ever typed into the real arena.ai page.</string>
+    <string name="app_name">Arena</string>
+    <string name="intent_open_arena_link">Open in Arena</string>
 </resources>

@@ -1,0 +1,21 @@
+<!--
+  The splash mark: the same geometric "A" as the launcher foreground, drawn on a transparent
+  background so the system can mask it however the device likes. No logo of Arena's is used or
+  imitated — this is an independent client, so the mark is ours and says nothing about the service.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.62"
+        android:scaleY="0.62">
+        <path
+            android:fillColor="@color/arena_accent"
+            android:fillType="evenOdd"
+            android:pathData="M54,20 L86,88 L72.5,88 L66.4,74.8 L41.6,74.8 L35.5,88 L22,88 Z M46,64.5 L62,64.5 L54,45.5 Z" />
+    </group>
+</vector>

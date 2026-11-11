@@ -75,6 +75,40 @@ jobs:
           fi
           echo "No keystores, service credentials or key-shaped literals tracked."
 
+      # The rules this repository's own documentation makes about the shipped code, checked
+      # mechanically so a document cannot quietly drift from the source it describes. Comments are
+      # stripped before matching: a KDoc line that *explains* a forbidden call is not a use of it.
+      - name: Refuse the capabilities the docs deny
+        run: |
+          set -uo pipefail
+          strip() { grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//|/\*)'; }
+          fail=0
+          refuse() { # $1 = promise, $2 = pattern that must not appear in app/src/main
+            if grep -rInE "$2" --include='*.kt' --include='*.xml' app/src/main | strip | grep -q .; then
+              echo "::error::$1 — forbidden pattern: $2"
+              grep -rInE "$2" --include='*.kt' --include='*.xml' app/src/main | strip | sed 's/^/    /'
+              fail=1
+            fi
+          }
+          refuse "no JavaScript bridge may be exposed to page content" 'addJavascriptInterface|@JavascriptInterface'
+          refuse "the app must not run script inside the page" 'evaluateJavascript|loadUrl\( *"javascript:'
+          refuse "the app must not read, copy or clear the site's cookies" 'CookieManager[[:space:]]*\.[[:space:]]*getInstance\(\)[[:space:]]*\.[[:space:]]*getCookie|removeAllCookies|removeSessionCookies|clearFormData|clearHistory'
+          refuse "no live streaming may be suspended from the background" '\.pauseTimers\(\)'
+          refuse "no second or hidden WebView may be constructed" 'new WebView\(|WebView\(this\)|WebView\(context\)|WebView\(activity'
+          refuse "forcing a garbage collection is not memory management" 'System\.gc\(\)|Runtime\.getRuntime\(\)\.gc\(\)'
+          refuse "no HTTP client: the site is reached only through the WebView" 'okhttp3|retrofit2|HttpURLConnection|java\.net\.http\.HttpClient'
+          refuse "no telemetry, analytics or crash upload" 'com\.google\.firebase|firebase-analytics|acra|bugsnag|sentry'
+          count=$(grep -rInE '= WebView\(' --include='*.kt' app/src/main | strip | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected exactly one WebView construction in app/src/main, found $count"
+            fail=1
+          fi
+          if [ "$fail" -eq 0 ]; then
+            echo "Every denied capability is still absent from the shipped code."
+          else
+            exit 1
+          fi
+
       - name: Set up the Android SDK
         uses: android-actions/setup-android@v3
         with:

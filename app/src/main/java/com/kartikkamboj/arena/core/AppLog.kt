@@ -54,8 +54,12 @@ object AppLog {
         Regex("""eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}""") to "<jwt>",
         // E-mail addresses (identifiers, but they still do not belong in logs).
         Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "<email>",
-        // Quoted values behind sensitive-looking keys, e.g. "password": "..."
-        Regex("\"(pass(?:word)?|secret|code|otp|refresh|auth)\"\\s*:\\s*\"[^\"]*\"") to "\"$1\":\"<redacted>\"",
+        // Quoted values behind any key that looks like a credential, including the JSON shapes a
+        // server error can echo back: "refresh_token": "…", "sessionKey": "…", "apiKey": "…".
+        Regex("\"[A-Za-z_]*(?:pass(?:word)?|secret|code|otp|token|credential|session|sid|key|auth)[A-Za-z_]*\"\\s*:\\s*\"[^\"]*\"", RegexOption.IGNORE_CASE) to "\"<key>\":\"<redacted>\"",
+        // Unquoted `key: value` / `key=value` pairs with the same key shapes, for log lines the
+        // platform writes itself (a URL query, a header dump, an exception message).
+        Regex("(?i)\b[A-Za-z_]*(?:pass(?:word)?|secret|code|otp|token|credential|session|sid|apikey|api_key|auth)[A-Za-z_]*\s*[:=]\s*[A-Za-z0-9\\-._~+/]{4,}") to "<key>=<redacted>", 
     )
 
     fun redact(input: String): String {

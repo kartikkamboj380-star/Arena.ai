@@ -1,135 +1,139 @@
 # Security
 
-What this app protects: the user's Arena session (cookies), the fact that they use five of them, and
-the boundary between the site's origin and the Android platform.
+The threat this app has to think about is narrow but real: it displays an authenticated page for a
+service, on a device that holds the user's files, camera and other apps. Everything below is either a
+line in the source or a claim CI checks; nothing here is a promise about intent.
 
-## 1. Transport
+## 1. Who may render
 
-- `res/xml/network_security_config.xml` sets `cleartextTrafficPermitted="false"` in `base-config`, and
-  its only trust anchor is `system` — **there is no per-domain exception rule anywhere in the file**,
-  and `android:usesCleartextTraffic` is not set. Consequence worth stating: a user-installed CA is not
-  trusted, so a proxy with a locally installed root cannot sit in the middle of a session cookie in a
-  release build. `<debug-overrides>` does trust user CAs, for the `debug` variant only; that is the
-  documented escape hatch for inspecting your own traffic and it cannot apply to a release APK.
-- `NavigationPolicy` re-checks at navigation time: `http://arena.ai/…` is upgraded to HTTPS, and any
-  other cleartext URL is blocked rather than upgraded (silently rewriting a third party's URL would
-  be its own failure mode).
-- `WebSettings.setMixedContentMode(MIXED_CONTENT_NEVER_ALLOW)` — no passive mixed content either.
-- `onReceivedSslError` always calls `handler.cancel()` and reports `ErrorKind.TLS`. There is no
-  "proceed anyway" path anywhere in the codebase, on any build type. This is the single most
-  important line in this file: a WebView client that offers to ignore a certificate error is a
-  downgrade attack with a button on it.
+`web/NavigationPolicy.kt` decides every main-frame navigation, and it is the only place that does.
 
-## 2. Storage
+| Target | Result | Code path |
+| --- | --- | --- |
+| `https://arena.ai`, `https://www.arena.ai` | rendered in app | `Decision.LoadInApp` |
+| `http://arena.ai…` | upgraded to https, then rendered | the http branch refuses to display a session page over cleartext |
+| `accounts.google.com`, `accounts.gmail.com`, `oauth2.googleapis.com` | rendered in app, so the site's own sign-in can finish | the small allow-list in `ArenaSite.AUTH_HOSTS` |
+| any other `https` site | opened in a Chrome Custom Tab, with the host named in the notice | `HandoffReason.EXTERNAL_LINK` |
+| any other `http` site | handed to the browser rather than loaded unencrypted here | `HandoffReason.INSECURE_SCHEME` |
+| `mailto:`, `tel:`, `sms:`, `geo:`… | given to the system handler | `HandoffReason.APP_HANDLER` |
+| `javascript:`, `data:`, `file:`, `intent:`, unparseable | refused, with a sentence explaining it | `Decision.Block` |
 
-| Data | Where | Encrypted | Backed up |
-| --- | --- | --- | --- |
-| Cookie jars (per slot) | `noBackupFilesDir/secure/arena_account_<n>.bin` | **yes** — AES/GCM 256, key in Android Keystore (`arena_ai_session_blob_key`, never extractable, `setRandomizedEncryptionRequired(true)`) | excluded by both `backup_rules.xml` and `data_extraction_rules.xml` |
-| Account registry (labels, statuses, counters) | `noBackupFilesDir/arena/accounts.json` | no — contains no secrets by construction | excluded |
-| History ledger, model catalog | same directory | no | excluded |
-| Settings | `SettingsRepository` over `JsonFileStore` | no | excluded |
-| Anything else | — | — | `android:allowBackup="false"` |
+A lookalike host (`arena.ai.example.com`, `notarena.ai`) is *not* the site: the comparison is on the
+parsed host, never a substring, so a page cannot earn trust by mentioning `arena.ai` in a path or query.
+These cases are unit tests, run on every push (`NavigationPolicyTest`).
 
-- **No password is ever collected, so none can be stored.** There is no field for one, and
-  `SharedPreferences` holds no credentials (the setting store is a JSON file of UI preferences).
-- **No hardcoded keys.** The Keystore alias is a constant; there is no key material in the repo. CI
-  greps for key-shaped literals (`AIza…`, `sk-…`, `-----BEGIN PRIVATE KEY-----`) and fails.
-- The blob format is `[4-byte tag][IV(12)][ciphertext+GCM tag]`. A blob that fails authentication, or
-  carries the wrong tag, is **deleted** — never half-trusted. `SecureBlobStoreTest` covers tamper,
-  truncation, foreign key and mislabelled file.
-- `CookieJarCodec` refuses to *build* an entry whose name looks like a credential
-  (`password`, `passwd`, `secret`, `otp`, `pin`) even when encrypted, and refuses values containing
-  `;`, `,`, quotes, backslash, CR or LF, so a hostile page cannot smuggle a second cookie through the
-  `Set-Cookie` line the app re-injects.
+Nothing is *added* to that list at runtime: there is no remote config, no dynamic allow-list, no way for
+a page to ask to be trusted.
 
-## 3. The origin boundary
+## 2. No bridge, by construction
 
-- **No `addJavascriptInterface`.** Verified by grep, not by promise. There is no Java object for page
-  script to reach, so a compromised or malicious frame on the device has nothing to call.
-- `AuthProbe` and `PageExtractor.LIST_SCRIPT` are read-only `evaluateJavascript` snippets returning
-  JSON. They do not read form fields or `input.value`, do not click or submit, do not touch
-  `localStorage`, and do not issue `fetch`/`XHR` (a test asserts the absence of each of those strings
-  in the scripts, so an edit that adds one fails CI).
-- `allowFileAccess = false`, `allowContentAccess = false` — a page cannot read the app's own files or
-  `content://` URIs. `file://` navigations are also blocked by policy, so this is two independent
-  gates rather than one.
-- Downloads are never opened inside the app: `DownloadListener` hands the URL to
-  `DownloadManager` into `getExternalFilesDir(null)` with a notification, and the file is opened by
-  whatever the user chooses, not by this app.
-- Multi-window is **not** enabled (`setSupportMultipleWindows` is never called), so `window.open()`
-  cannot create a second frame outside the policy. `ArenaWebChromeClient.onCreateWindow` resolves the
-  link the gesture hit (`WebView.HitTestResult.SRC_ANCHOR_TYPE` → `getExtra()`) and follows it *in the
-  slot's own view*, which the policy already gates; if the target cannot be read, the user is told
-  rather than left with a dead button. No second `WebView` is ever constructed — not a stub, not a
-  hidden one. That is both the security answer (one view, one policy, one jar) and the low-RAM answer
-  (a second renderer is the most expensive object in this app).
-- **Third-party cookies are enabled for the session `WebView` only**
-  (`CookieManager.setAcceptThirdPartyCookies(view, true)`). This is required for an identity provider's
-  redirect chain to work in-app; without it a sign-in silently returns the user anonymous, which is
-  the bug this client used to have. It is scoped to this view — the global default is untouched — and it
-  does not weaken slot isolation: cookies still live in the shared jar that is captured, encrypted and
-  swapped per slot, so a third-party cookie set during Account 2's sign-in is stored *as Account 2's*
-  material and is gone when the jar is cleared. The page still cannot reach the app (no
-  `addJavascriptInterface`), and no third-party *navigation* is allowed outside the sign-in window.
-- `onShowFileChooser` only ever satisfies the request with `content://` URIs the user picked through
-  `ActivityResultContracts.OpenMultipleDocuments`; no file path is exposed to the page.
-- Geolocation is refused (`onGeolocationPermissionsShowPrompt(origin, false, false)`), every
-  `onPermissionRequest` is `deny()`-ed (camera, microphone, MIDI), and fullscreen is declined cleanly
-  rather than left hanging. The `CAMERA` permission is declared with
-  `<uses-feature android:required="false">` and no code path requests it at runtime; the upload picker
-  is documents-only (`OpenMultipleDocuments`), so the manifest line is the seam for a future
-  "attach a photo" flow, not a live capability. Diagnostics says which of these are on.
+- `addJavascriptInterface` appears nowhere in `app/src/main`, so there is no object for a page to reach
+  and no `@JavascriptInterface` surface to exploit.
+- No `evaluateJavascript`, no `injectJavascriptObj`, no `postWebMessage`/`createWebMessageChannel`, no
+  `shouldInterceptRequest`. The app cannot run script in the page and cannot rewrite what the page loads;
+  the deleted v1 code did all three, and deleting them removed the attack surface rather than hardening it.
+- `allowFileAccess = false`, `allowContentAccess = false`, `setGeolocationEnabled(false)`,
+  `javaScriptCanOpenWindowsAutomatically = false`, `setSupportMultipleWindows(false)`.
+- `WebView.setWebContentsDebuggingEnabled(true)` only when `BuildConfig.DEBUG`, so a release APK cannot
+  be inspected over DevTools.
 
-## 4. What leaves the device
+## 3. Transport
 
-Nothing that the app adds. There is no analytics SDK, no crash reporter, no telemetry endpoint, no
-error ping. The only network traffic is the WebView loading `arena.ai` (and the identity provider the
-user chose, in the browser). Settings → *Connection diagnostics* states this on screen, and
-`Diagnostics` prints counts and labels only — it never renders a cookie value, a token, or a raw
-error body.
+- `res/xml/network_security_config.xml`: `cleartextTrafficPermitted="false"`; only `system` trust anchors
+  in release, with `user` anchors confined to `debug-overrides`. A user-installed CA cannot read the
+  session on a release build.
+- TLS errors go to `handler.cancel()`. There is deliberately no "continue anyway" affordance — Android's
+  own guidance is that a user cannot make that decision meaningfully, and a shell that offers it becomes
+  the weak link.
+- **No certificate pinning.** Pinning a service this app does not operate means pinning a key the
+  project cannot rotate; a wrong pin bricks the app for every user. Stated here so it is not mistaken for
+  an oversight.
+- Safe Browsing is left at the platform default (the WebView shows its own interstitial); the app does
+  not override `onSafeBrowsingHit` to hide or auto-accept it.
 
-## 5. Redaction
+## 4. Permissions, and what each is for
 
-`AppLog` is a single funnel for logging, and every message passes through five regexes first:
-`cookie`/`set-cookie` headers, `bearer|basic|token|api_key|authorization|session|sid` assignments,
-JWT-shaped `eyJ…` runs, and e-mail addresses, plus quoted `"password"|"secret"|"code"|"otp"|…`
-values. Throwable logging keeps the type and the redacted message, capped at 160 characters. On
-release builds the whole object is a no-op before formatting.
+| Permission | Why | Absence consequence |
+| --- | --- | --- |
+| `INTERNET` | load the site | nothing works |
+| `ACCESS_NETWORK_STATE` | say "no network" instead of blaming the site for a radio that is off | error wording gets vaguer |
+| `WRITE_EXTERNAL_STORAGE`, `maxSdkVersion="28"` | place a download in the public `Downloads` dir on API 26–28 | on 29+ the system download manager needs nothing, so most devices never hold it |
 
-`CookieJarCodec.summarise()` is the only representation of a jar that can reach a log or the
-diagnostics screen: `name(length)`, never `name=value`.
+That is the whole list. No camera, no microphone, no notifications, no storage reads, no
+`QUERY_ALL_PACKAGES`, no location, no foreground-service type. Consequences are stated rather than
+hidden: a page asking for the camera or microphone is denied and told why
+(`ArenaWebChromeClient.onPermissionRequest`), and no download progress notification belongs to this app
+because the download belongs to the system.
 
-`RedactionTest` asserts each pattern masks, and that ordinary diagnostic text
-(`Loaded https://arena.ai/leaderboard in 812ms`) is *not* mangled — a redactor that eats everything is
-useless, and a test that only checks the leak case would allow that.
+## 5. Files, downloads, other apps
 
-## 6. Screenshot protection
+- **Uploads.** `<input type="file">` is answered with `ACTION_GET_CONTENT` restricted to the page's own
+  `accept` list, through the system picker. The app receives the URIs and hands them straight to the
+  WebView. It does not copy, cache, convert or read them, so the grant lifetime is the picker's, not a
+  permission the app holds. A cancelled picker answers the callback with `null` — leaving a page's input
+  hanging is both a bug and a way to keep a grant alive.
+- **Downloads.** Sent to `DownloadManager` with the filename the *server* offered (`Content-Disposition`,
+  including the `filename*=UTF-8''…` form), percent-decoded, reduced to its **last path segment** so a
+  server cannot name `../../etc/passwd`, capped at 96 characters, extension from the mime type only when
+  the name has none (`ArenaSite.suggestedFileName`, unit-tested both ways). No private `HttpURLConnection`
+  downloader, so no second TLS stack and no destination the user cannot see; progress and completion are
+  the system's notification, which keeps working when this app is gone.
+- **Hand-offs.** Off-site links go to a Custom Tab; `intent:` and unknown schemes are refused rather
+  than passed to `startActivity`, so a page cannot pick a component to launch.
 
-`FLAG_SECURE` is applied from `MainActivity` while the setting is on (default): screen capture is
-blocked and the recent-apps preview is blank. This is opt-out because a chat window can contain
-someone else's prompt, and because the same flag also hides the loaded page from some accessibility
-and automation surfaces — which is the trade-off the row in Settings explains.
+## 6. What the app knows about you
 
-## 7. WebView package and its limits
+Nothing it chose to keep. There is no database, no preferences file, no JSON store, no cache of
+prompts, threads, models, accounts or history — the entire persistence layer of v1 was deleted, and the
+app has no code path that writes a file of its own. What does exist lives in the WebView's own profile
+(the site's cookies, local storage, HTTP cache) because a browser cannot work otherwise:
 
-`IsolationCapability` records the actual WebView provider and version (`WebViewCompat
-.getCurrentWebViewPackage()`), shown on the diagnostics screen. If the provider is outdated, that is
-a device-level risk this client cannot fix; the app never patches or downgrades the engine, and never
-disables a safety feature to work around one.
+| Data | Where | Cleared by |
+| --- | --- | --- |
+| session cookies | the app's WebView cookie store, on disk (flushed on `onStop`) | the site's own expiry, or the user via system app storage |
+| local/session storage, IndexedDB | the app's WebView data directory | same |
+| HTTP cache | the WebView cache | the site's cache headers; given back first under memory pressure (`clearCache(true)`) |
+| anything this app recorded | **nothing** | — |
 
-## 8. Known limits of *this* app's security model (no more, no less)
+`android:allowBackup="false"` and no `dataExtractionRules`/`fullBackupContent`: there is deliberately no
+copy of this profile in cloud or device-to-device backups. **The cost of that, stated plainly:** a
+restore onto a new phone gives you the app, not your sign-in, and the site's own "sign out everywhere"
+cannot reach this profile. Wiping it yourself: system Settings → Apps → Arena → Storage → Clear storage
+(or `adb shell pm clear com.kartikkamboj.arena.debug`). No "log out" button was added, because a native
+button that clears storage would be a second, blunter logout than the site's own.
 
-1. **The session lives in the platform cookie jar, not in an app-private one.** `CookieManager` is
-   shared with other WebView users in this process; the app's mitigation is to make ownership explicit
-   (`activeSlot`) and to wipe on switch, but a bug in that sequencing is the residual risk. The
-   strict test double exists to make that sequencing fail loudly.
-2. **A rooted or debuggable device can read memory** and therefore the live jar — as with every
-   WebView-based client. Debug builds are `.debug`-suffixed and installable side by side; release
-   builds are minified and, in CI, unsigned on purpose.
-3. **Session validity is judged by visible page affordances.** If Arena changes the DOM, the probe
-   degrades to "unknown" (status is held rather than guessed) — an availability bug, not a security
-   one, and the conservative choice.
-4. **No attestation.** The app cannot prove to Arena that a human is typing, and does not try to.
-5. **Keystore fallback.** If the Keystore is unavailable, `AppContainer` falls back to a
-   process-lifetime key: sessions then do not survive a restart, and the diagnostics screen prints
-   `hardwareBacked=false` rather than pretending otherwise.
+## 7. Logging
+
+`core/AppLog.kt` is the only writer to `Log`. Verbose output is debug-only; warnings and errors survive
+in release because they name failure types, and every string passes through `redact()` first:
+cookie/`Set-Cookie` headers, `Authorization`/bearer/basic values, `*token|secret|password|code|otp|session|sid|key*`
+in both quoted JSON and `key=value` shapes, JWT-looking runs, e-mail addresses, then truncated. Load
+failures log the **host**, never the full URL, because a provider redirect URL is exactly where a
+`?code=…` lives. `AppLogTest` asserts a secret in each shape does not survive the funnel — including
+one crafted to defeat a weaker `refresh` pattern. There is no crash handler that uploads a stack trace,
+no analytics, no telemetry endpoint.
+
+## 8. Input the app parses
+
+Small, and worth listing because each parser is a place a hostile page could reach:
+
+- URLs — `ParsedUrl`, `java.net.URI` with a structural fallback; only scheme/host/path are read, never
+  credentials (so `https://arena.ai@evil.example/` fails the host test rather than passing it).
+- `Content-Disposition` — the two filename forms above.
+- WebView progress, error codes, HTTP status, `RenderProcessGoneDetail` — numbers, mapped in
+  `WebFailures`/`BrowserReducer`.
+- No HTML, JSON, Markdown or cookie parsing at all. That sentence is the summary of this section: the
+  app's parser surface is four rules, three of them about a host name.
+
+## 9. Known gaps
+
+- In-page camera and microphone do not work (by design, §4). *File* uploads do, because the picker needs
+  no permission, and the site's own image tools work with files you attach that way.
+- A provider that rejects embedded views outright leaves you with the site's e-mail form or the browser;
+  the app cannot fix that and the panel says so.
+- The WebView is the system component: its TLS and Safe Browsing behaviour is the device's, and a device
+  with an outdated WebView provider is outside this app's control. Where a feature is optional the code
+  asks for it before using it (`WebViewFeature.isFeatureSupported(ALGORITHMIC_DARKENING)` around the
+  web-theme line) rather than assuming every device has it.
+- Nothing in this file has been pen-tested or audited. What is verified: the trust rules and the
+  download-name sanitising, by unit tests that run on every push.
