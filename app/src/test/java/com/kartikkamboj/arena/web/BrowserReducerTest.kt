@@ -22,7 +22,7 @@ class BrowserReducerTest {
 
     @Test
     fun `starting a load moves to loading and clears an earlier failure`() {
-        val failed = reduce(reduce(BrowserState(), BrowserEvent.LoadStarted(home)), BrowserEvent.LoadFailed(home, "boom"))
+        val failed = reduce(reduce(BrowserState(), BrowserEvent.LoadStarted(home)).state, BrowserEvent.LoadFailed(home, "boom"))
         assertTrue(failed.state.phase == PagePhase.FAILED)
         val again = reduce(failed.state, BrowserEvent.LoadStarted(home))
         assertEquals(PagePhase.LOADING, again.state.phase)
